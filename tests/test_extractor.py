@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from chatgpt_extractor.extractor import ConversationExtractorV2
+from tests.test_helpers import capture_logs, assert_in_logs
 
 
 class TestConversationExtractorV2:
@@ -270,22 +271,22 @@ class TestConversationExtractorV2:
         with open(input_file, 'w') as f:
             json.dump(sample_data, f)
         
-        extractor = ConversationExtractorV2(str(input_file), str(output_dir))
-        extractor.extract_all()
-        
-        # Check output files were created
-        md_files = list(output_dir.glob('**/*.md'))
-        assert len(md_files) >= 1  # At least one conversation extracted
-        
-        # Check for project folder
-        project_dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith('g-p-')]
-        assert len(project_dirs) == 1  # One project folder
-        
-        # Check schema evolution log
-        schema_log = output_dir / 'schema_evolution.log'
-        assert schema_log.exists()
-        
-        # Check console output
-        captured = capsys.readouterr()
-        assert 'EXTRACTION COMPLETE!' in captured.out
-        assert 'Success rate:' in captured.out
+        with capture_logs('chatgpt_extractor.chatgpt_extractor.extractor') as log_capture:
+            extractor = ConversationExtractorV2(str(input_file), str(output_dir))
+            extractor.extract_all()
+            
+            # Check output files were created
+            md_files = list(output_dir.glob('**/*.md'))
+            assert len(md_files) >= 1  # At least one conversation extracted
+            
+            # Check for project folder
+            project_dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith('g-p-')]
+            assert len(project_dirs) == 1  # One project folder
+            
+            # Check schema evolution log
+            schema_log = output_dir / 'schema_evolution.log'
+            assert schema_log.exists()
+            
+            # Check log output instead of console output
+            assert_in_logs(log_capture, 'EXTRACTION COMPLETE!')
+            assert_in_logs(log_capture, 'Success rate:')

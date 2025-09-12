@@ -10,6 +10,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from chatgpt_extractor.__main__ import main, run_failure_analysis
+from tests.test_helpers import capture_logs, assert_in_logs
 
 
 class TestCLI:
@@ -62,15 +63,15 @@ class TestCLI:
     
     def test_run_failure_analysis_no_log(self, capsys):
         """Test failure analysis when no log exists."""
-        run_failure_analysis('input.json', 'output_dir')
-        captured = capsys.readouterr()
-        assert 'No failures to analyze' in captured.out
+        with capture_logs('chatgpt_extractor.chatgpt_extractor.__main__') as log_capture:
+            run_failure_analysis('input.json', 'output_dir')
+            assert_in_logs(log_capture, 'No failures to analyze')
     
     def test_run_failure_analysis_no_failures(self, tmp_path, capsys):
         """Test failure analysis when log shows no failures."""
         log_file = tmp_path / 'conversion_log.log'
         log_file.write_text('Processing complete.\nFailed conversations: 0')
         
-        run_failure_analysis('input.json', str(tmp_path))
-        captured = capsys.readouterr()
-        assert 'No failures to analyze' in captured.out
+        with capture_logs('chatgpt_extractor.chatgpt_extractor.__main__') as log_capture:
+            run_failure_analysis('input.json', str(tmp_path))
+            assert_in_logs(log_capture, 'No failures to analyze')

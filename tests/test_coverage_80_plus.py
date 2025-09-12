@@ -159,7 +159,9 @@ class TestExtractorComprehensive:
             }
         ]
         
-        processed, metadata = extractor.process_messages(messages, "test-conv")
+        # process_messages now needs conv_data parameter
+        conv_data = {"id": "test-conv", "title": "Test Conversation"}
+        processed = extractor.process_messages(messages, "test-conv", conv_data)
         assert len(processed) >= 2  # User and assistant messages
         
     def test_merge_continuations(self):

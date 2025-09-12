@@ -84,26 +84,26 @@ class TestCoverageImprovement:
         processor = MessageProcessor(tracker)
         
         # Text content
-        text_content = {"content_type": "text", "parts": ["Hello world"]}
-        result = processor.extract_message_content(text_content, "test-1")
+        text_msg = {"content": {"content_type": "text", "parts": ["Hello world"]}}
+        result = processor.extract_message_content(text_msg, "test-1")
         assert result == "Hello world"
         
         # Code content  
-        code_content = {
+        code_msg = {"content": {
             "content_type": "code",
             "language": "python",
             "text": "def hello():\n    print('world')"
-        }
-        result = processor.extract_message_content(code_content, "test-2")
+        }}
+        result = processor.extract_message_content(code_msg, "test-2")
         assert "```python" in result
         assert "def hello():" in result
         
         # Execution output
-        exec_content = {
+        exec_msg = {"content": {
             "content_type": "execution_output",
             "text": "Output: 42"
-        }
-        result = processor.extract_message_content(exec_content, "test-3")
+        }}
+        result = processor.extract_message_content(exec_msg, "test-3")
         assert "```output" in result
         assert "Output: 42" in result
     

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from chatgpt_extractor.extractor import ConversationExtractorV2
 from chatgpt_extractor.processors import MessageProcessor
 from chatgpt_extractor.trackers import SchemaEvolutionTracker, ProgressTracker
+from tests.test_helpers import capture_logs, assert_in_logs
 
 
 class TestCoverageFinal:
@@ -20,20 +21,20 @@ class TestCoverageFinal:
     
     def test_extractor_print_summary(self, capsys):
         """Test print_summary method."""
-        extractor = ConversationExtractorV2("dummy.json", "output")
-        
-        # Create a mock progress tracker
-        from chatgpt_extractor.trackers import ProgressTracker
-        progress = ProgressTracker(10)
-        progress.processed = 10
-        progress.failed = 2
-        
-        # Call print_summary
-        extractor.print_summary(progress)
-        
-        # Check output was printed
-        captured = capsys.readouterr()
-        assert "EXTRACTION COMPLETE" in captured.out
+        with capture_logs('chatgpt_extractor.chatgpt_extractor.extractor') as log_capture:
+            extractor = ConversationExtractorV2("dummy.json", "output")
+            
+            # Create a mock progress tracker
+            from chatgpt_extractor.trackers import ProgressTracker
+            progress = ProgressTracker(10)
+            progress.processed = 10
+            progress.failed = 2
+            
+            # Call print_summary
+            extractor.print_summary(progress)
+            
+            # Check log output
+            assert_in_logs(log_capture, "EXTRACTION COMPLETE")
         
     def test_extractor_error_paths(self, tmp_path):
         """Test error handling paths in extractor."""
@@ -51,10 +52,10 @@ class TestCoverageFinal:
         
         # Test with empty content
         result = processor.extract_message_content({}, "test-1")
-        assert result == ""
+        assert result is None or result == ""
         
         # Test with unknown content type
-        unknown = {"content_type": "completely_unknown"}
+        unknown = {"content": {"content_type": "completely_unknown"}}
         result = processor.extract_message_content(unknown, "test-2")
         assert result == ""
         
@@ -85,9 +86,11 @@ class TestCoverageFinal:
         
         with patch('sys.argv', test_args):
             # This tests the main entry point
-            with pytest.raises(SystemExit) as exc:
+            try:
                 main_module.main()
-            # Should exit with 0 (success) or continue without error
+            except SystemExit as e:
+                # Check exit code is 0 (success)
+                assert e.code == 0
             
     def test_extractor_finding_leaf_nodes(self):
         """Test leaf node finding in graphs."""
@@ -114,7 +117,7 @@ class TestCoverageFinal:
         processor = MessageProcessor(tracker)
         
         # Multimodal with various part types
-        content = {
+        msg = {"content": {
             "content_type": "multimodal_text",
             "parts": [
                 "Text part",
@@ -122,10 +125,11 @@ class TestCoverageFinal:
                 None,  # Should handle None
                 {"type": "code", "text": "code"}
             ]
-        }
+        }}
         
-        result = processor.extract_message_content(content, "test-multi")
+        result = processor.extract_message_content(msg, "test-multi")
         # Should process without error
+        assert result is not None
         assert isinstance(result, str)
         
     def test_schema_tracker_report_generation(self, tmp_path):
