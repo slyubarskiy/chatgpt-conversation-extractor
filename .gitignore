@@ -159,3 +159,8 @@ schema_evolution.log
 conversion_log.log
 conversion_failures.json
 failure_analysis_report.json
+
+# Internal documentation (requirements and technical specs)
+docs/[0-9]*.md
+session_*.md
+ci_fixes.patch
