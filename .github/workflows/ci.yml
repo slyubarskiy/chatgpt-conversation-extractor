@@ -75,6 +75,8 @@ jobs:
     
     - name: Test CLI interface
       run: |
+        # Install package for module testing
+        pip install -e .
         # Test help command
         python extract.py --help
         python -m chatgpt_extractor --help
