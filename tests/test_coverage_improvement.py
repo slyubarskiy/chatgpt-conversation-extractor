@@ -138,17 +138,17 @@ class TestCoverageImprovement:
         tracker = SchemaEvolutionTracker()
         
         # Track content types
-        tracker.track_content_type("text")
-        tracker.track_content_type("code")
-        tracker.track_content_type("unknown_type")
+        tracker.track_content_type("text", "conv-1")
+        tracker.track_content_type("code", "conv-2")
+        tracker.track_content_type("unknown_type", "conv-3")
         
         # Track author roles
-        tracker.track_author_role("user")
-        tracker.track_author_role("assistant")
-        tracker.track_author_role("new_role")
+        tracker.track_author_role("user", "conv-1")
+        tracker.track_author_role("assistant", "conv-2")
+        tracker.track_author_role("new_role", "conv-3")
         
         # Track metadata keys
-        tracker.track_metadata_keys({"key1": "val1", "key2": "val2"})
+        tracker.track_metadata_keys({"key1": "val1", "key2": "val2"}, "conv-1")
         
         # Generate report
         report = tracker.generate_report()
@@ -160,25 +160,25 @@ class TestCoverageImprovement:
         tracker = ProgressTracker(100)
         
         # Update progress
-        tracker.update(10, success=True)
-        assert tracker.processed == 10
-        assert tracker.successful == 10
+        tracker.update(success=True)
+        assert tracker.processed == 1
+        assert tracker.successful == 1
         
-        tracker.update(5, success=False)
-        assert tracker.processed == 15
-        assert tracker.failed == 5
+        tracker.update(success=False)
+        assert tracker.processed == 2
+        assert tracker.failed == 1
         
         # Get progress string
         progress = tracker.get_progress_string()
-        assert "15/100" in progress
-        assert "15.0%" in progress
+        assert "2/100" in progress
+        assert "2.0%" in progress
         
         # Final stats
         stats = tracker.get_final_stats()
         assert stats["total"] == 100
-        assert stats["processed"] == 15
-        assert stats["successful"] == 10
-        assert stats["failed"] == 5
+        assert stats["processed"] == 2
+        assert stats["successful"] == 1
+        assert stats["failed"] == 1
     
     def test_filename_sanitization(self):
         """Test filename sanitization."""
@@ -234,13 +234,13 @@ class TestCoverageImprovement:
         }
         
         # Traverse from branch A
-        messages_a = extractor.backward_traverse(mapping, "a2")
+        messages_a = extractor.backward_traverse(mapping, "a2", "test-conv")
         assert len(messages_a) == 2
         assert messages_a[0]["content"] == "Branch A1"
         assert messages_a[1]["content"] == "Branch A2"
         
         # Traverse from branch B
-        messages_b = extractor.backward_traverse(mapping, "b2")
+        messages_b = extractor.backward_traverse(mapping, "b2", "test-conv")
         assert len(messages_b) == 2
         assert messages_b[0]["content"] == "Branch B1"
         assert messages_b[1]["content"] == "Branch B2"
