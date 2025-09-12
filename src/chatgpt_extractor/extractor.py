@@ -46,7 +46,7 @@ class ConversationExtractorV2:
         self.message_processor = MessageProcessor(self.schema_tracker)
         
         # Track failures
-        self.conversion_failures = []
+        self.conversion_failures: List[Dict[str, Any]] = []
     
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
@@ -675,7 +675,7 @@ class ConversationExtractorV2:
                 f.write("="*80 + "\n\n")
             
                 # Summary by category
-                categories = defaultdict(int)
+                categories: Dict[str, int] = defaultdict(int)
                 for fail in self.conversion_failures:
                     categories[fail['category']] += 1
                 

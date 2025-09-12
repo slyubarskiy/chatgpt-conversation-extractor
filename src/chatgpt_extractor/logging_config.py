@@ -13,7 +13,7 @@ import json
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 
 # Configuration constants
@@ -153,12 +153,14 @@ def setup_logging(
         console_level = level
     
     # Set up formatters
+    formatter: Union[JSONFormatter, MillisecondFormatter]
     if use_json:
         formatter = JSONFormatter()
     else:
         formatter = MillisecondFormatter(DEFAULT_LOG_FORMAT, datefmt=DATE_FORMAT)
     
     # Console handler
+    console_handler: Union[TqdmLoggingHandler, logging.StreamHandler]
     if use_tqdm:
         console_handler = TqdmLoggingHandler(sys.stdout)
     else:

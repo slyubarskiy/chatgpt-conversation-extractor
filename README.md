@@ -60,7 +60,7 @@ Every filtered item is logged in `schema_evolution.log` for transparency.
 
 Tested on personal export: c. 7k conversations (c.500MB JSON)
 - Processing time: ~100 seconds
-- Success rate: 100% (failures logged with details)
+- Success rate: 99.5% (failures logged with details)
 - Output: c. 7k Markdown files organized by project
 
 ## Planned Enhancements
