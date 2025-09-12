@@ -1,0 +1,8 @@
+# Core dependencies for ChatGPT Conversation Extractor
+# Python 3.9+ required
+
+# Required dependencies (not in Python standard library)
+PyYAML>=6.0.1
+
+# Optional but recommended for better performance
+# python-dateutil>=2.8.2  # Better date parsing (if needed)
