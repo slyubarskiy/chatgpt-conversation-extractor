@@ -1,0 +1,94 @@
+[
+  {
+    "id": "test-conv-001",
+    "title": "Test Conversation",
+    "create_time": 1704067200,
+    "update_time": 1704070800,
+    "mapping": {
+      "node-1": {
+        "id": "node-1",
+        "parent": null,
+        "children": ["node-2"],
+        "message": null
+      },
+      "node-2": {
+        "id": "node-2",
+        "parent": "node-1",
+        "children": ["node-3"],
+        "message": {
+          "id": "msg-1",
+          "author": {"role": "system"},
+          "content": {
+            "content_type": "text",
+            "parts": ["You are a helpful assistant."]
+          },
+          "metadata": {"is_user_system_message": true}
+        }
+      },
+      "node-3": {
+        "id": "node-3",
+        "parent": "node-2",
+        "children": ["node-4"],
+        "message": {
+          "id": "msg-2",
+          "author": {"role": "user"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Hello, can you help me with Python?"]
+          },
+          "metadata": {}
+        }
+      },
+      "node-4": {
+        "id": "node-4",
+        "parent": "node-3",
+        "children": [],
+        "message": {
+          "id": "msg-3",
+          "author": {"role": "assistant"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Of course! I'd be happy to help you with Python."]
+          },
+          "metadata": {}
+        }
+      }
+    },
+    "current_node": "node-4",
+    "conversation_template_id": null,
+    "default_model_slug": "gpt-4"
+  },
+  {
+    "id": "test-conv-002",
+    "title": "Code Example",
+    "create_time": 1704067200,
+    "update_time": 1704070800,
+    "mapping": {
+      "node-1": {
+        "id": "node-1",
+        "parent": null,
+        "children": ["node-2"],
+        "message": null
+      },
+      "node-2": {
+        "id": "node-2",
+        "parent": "node-1",
+        "children": [],
+        "message": {
+          "id": "msg-1",
+          "author": {"role": "user"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Show me a Python function"]
+          },
+          "metadata": {
+            "attachments": [{"name": "example.py"}]
+          }
+        }
+      }
+    },
+    "current_node": "node-2",
+    "conversation_template_id": "g-p-test-project",
+    "default_model_slug": "gpt-4"
+  }
+]
