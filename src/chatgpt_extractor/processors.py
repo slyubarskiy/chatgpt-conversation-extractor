@@ -373,12 +373,15 @@ class MessageProcessor:
         """Extract uploaded file names from message attachments."""
         files = []
         
-        # Check attachments metadata
-        metadata = msg.get('metadata', {})
-        if attachments := metadata.get('attachments'):
-            for attachment in attachments:
-                if name := attachment.get('name'):
-                    files.append(name)
+        # Check attachments metadata - defensive handling
+        metadata = msg.get('metadata')
+        if metadata is not None and isinstance(metadata, dict):
+            if attachments := metadata.get('attachments'):
+                if isinstance(attachments, list):
+                    for attachment in attachments:
+                        if isinstance(attachment, dict) and attachment is not None:
+                            if name := attachment.get('name'):
+                                files.append(name)
         
         # Check content for file references
         content = msg.get('content', {})
@@ -388,10 +391,12 @@ class MessageProcessor:
             parts = content.get('parts', [])
             if isinstance(parts, list):
                 for part in parts:
-                    if isinstance(part, dict):
+                    if isinstance(part, dict) and part is not None:
                         if part.get('asset_pointer'):
-                            # File upload reference
-                            if file_name := part.get('metadata', {}).get('file_name'):
-                                files.append(file_name)
+                            # File upload reference - defensive metadata handling
+                            metadata = part.get('metadata')
+                            if metadata is not None and isinstance(metadata, dict):
+                                if file_name := metadata.get('file_name'):
+                                    files.append(file_name)
         
         return files

@@ -53,9 +53,8 @@ Every filtered item is logged in `schema_evolution.log` for transparency.
 - **Complete extraction**: Properly traverses the conversation graph to capture all active messages
 - **Robust parsing**: Handles 15+ content types with defensive error handling
 - **Detailed metadata**: Preserves timestamps, models, URLs, citations
-- **Project organization**: Automatically groups ChatGPT Project conversations
+- **Project organisation**: Automatically groups ChatGPT Project conversations
 - **Transparent filtering**: Logs what's excluded and why
-- **Memory efficient**: Processes 500MB+ exports with <2GB RAM
 
 ## Performance tested
 
@@ -63,6 +62,42 @@ Tested on personal export: c. 7k conversations (c.500MB JSON)
 - Processing time: ~100 seconds
 - Success rate: 100% (failures logged with details)
 - Output: c. 7k Markdown files organized by project
+
+## Planned Enhancements
+
+Features contemplated but not yet implemented:
+
+- Intelligent project naming: Analyze conversations to generate meaningful folder names (currently uses project IDs)
+- Incremental updates: Process only new conversations since last extraction
+- Streaming mode: Process large exports without loading entire file into memory
+- Custom filtering: Configure what content types to include/exclude
+- Export formats: HTML, PDF, or database output options
+- Conversation search: Built-in search across extracted content
+
+**Contributions welcome** - see **CONTRIBUTING.md** for guidelines.
+
+
+## Technical Details
+
+The extractor handles several complexities in ChatGPT's export format:
+1. **Graph traversal**: Conversations aren't simple arrays but directed graphs with branches. The tool uses backward traversal from the current node to reconstruct the active conversation path.
+2. **Content type handling**: 15+ different content structures, each requiring specific parsing logic.
+3. **Defensive parsing**: Comprehensive null checks and error handling after analyzing failure patterns across thousands of conversations.
+4. **URL extraction**: Captures URLs from 6+ different locations in the data structure (citations, safe_urls, content fields, etc.)
+
+See [Architecture Documentation](docs/ARCHITECTURE.md) for implementation details.
+
+## Comparison with Other Tools
+
+| Feature | This Tool | Others Tested |
+|---------|-----------|---------------|
+| Current format support | ✓ Full | Partial/Outdated |
+| Graph traversal | ✓ Complete | Often incomplete |
+| Metadata preservation | ✓ Comprehensive | Limited |
+| Error handling | ✓ Detailed logging | Silent failures |
+| Project organization | ✓ Automatic | Usually missing |
+| Filtered content transparency | ✓ Logged | Hidden |
+
 
 ## 🚀 Quick Start
 
@@ -285,4 +320,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-**Built with Python** | **Processes 6,000+ conversations in ~100 seconds**
+## About
+
+Built by Sergey Lyubarskiy, I specialise in Data & AI transformations. I and needed a reliable tool to manage my ChatGPT conversation. I work at Accenture, opinions are my own.
