@@ -199,7 +199,12 @@ class MessageProcessor:
     
     def extract_from_parts(self, parts: List[Any], conv_id: str) -> Optional[str]:
         """Extract content from parts array (handles multimodal content)."""
-        if not parts:
+        # Defensive programming for None or invalid parts
+        if parts is None:
+            return None
+        if not isinstance(parts, list):
+            return None
+        if not parts:  # Empty list
             return None
         
         result_parts = []
@@ -221,12 +226,20 @@ class MessageProcessor:
                     self.tracker.track_part_type(part_type, conv_id)
                 
                 if part_type == 'image_asset_pointer':
-                    # Image reference
-                    metadata = part.get('metadata', {})
-                    if dalle_prompt := metadata.get('dalle', {}).get('prompt'):
-                        result_parts.append(f"[DALL-E Image: {dalle_prompt}]")
-                    elif dalle_prompt := metadata.get('dalle_prompt'):
-                        result_parts.append(f"[DALL-E Image: {dalle_prompt}]")
+                    # Image reference - defensive metadata handling
+                    metadata = part.get('metadata')
+                    if metadata is not None:
+                        # Check for DALL-E prompt in nested structure
+                        dalle_dict = metadata.get('dalle')
+                        if dalle_dict is not None and isinstance(dalle_dict, dict):
+                            if dalle_prompt := dalle_dict.get('prompt'):
+                                result_parts.append(f"[DALL-E Image: {dalle_prompt}]")
+                            else:
+                                result_parts.append("[Image]")
+                        elif dalle_prompt := metadata.get('dalle_prompt'):
+                            result_parts.append(f"[DALL-E Image: {dalle_prompt}]")
+                        else:
+                            result_parts.append("[Image]")
                     else:
                         result_parts.append("[Image]")
                         
@@ -243,6 +256,10 @@ class MessageProcessor:
                 elif part_type == 'video_asset_pointer':
                     # Video file reference
                     result_parts.append("[Video file]")
+                    
+                elif part_type == 'real_time_user_audio_video_asset_pointer':
+                    # Real-time voice conversation with video
+                    result_parts.append("[Voice conversation with video]")
                     
                 elif part_type == 'code_interpreter_output':
                     # Code interpreter output

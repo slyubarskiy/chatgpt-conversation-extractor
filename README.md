@@ -6,6 +6,64 @@
 
 Extract and convert ChatGPT conversation exports from JSON to organized Markdown files with comprehensive metadata preservation and error tracking.
 
+# ChatGPT Conversation Extractor
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)]
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)]
+
+A Python tool that reliably extracts ChatGPT conversations from JSON exports into searchable Markdown files, built after finding existing solutions outdated or incomplete.
+
+## Why This Tool Exists
+
+After accumulating thousands of ChatGPT conversations, I needed a reliable way to extract and organize them. I tested numerous existing tools (both open-source and commercial) and found common issues:
+- Many haven't been updated for ChatGPT's current export format
+- Silent omission of messages due to incorrect graph traversal
+- Limited or missing metadata preservation
+- Incomplete handling of content types (code, files, web searches, etc.)
+
+This tool prioritizes **completeness and transparency** - you control what gets extracted versus filtered, with detailed logging of any skipped content.
+
+## What Gets Extracted
+
+### Included ✓
+- All user messages
+- All assistant responses
+- Custom instructions (system prompts)
+- Code blocks with syntax highlighting
+- File attachment references
+- Web search queries and results
+- Citations with URLs
+- DALL-E image generation prompts
+- Message timestamps and model versions
+- Project organization (for ChatGPT Projects)
+
+### Filtered Out ✗
+- Tool/plugin internal messages (except DALL-E)
+- Hidden system messages
+- Internal reasoning traces
+- Model's thinking process
+- Empty placeholder messages
+- Alternative message branches (only active branch extracted)
+
+Every filtered item is logged in `schema_evolution.log` for transparency.
+
+## Key Features
+
+- **Complete extraction**: Properly traverses the conversation graph to capture all active messages
+- **Robust parsing**: Handles 15+ content types with defensive error handling
+- **Detailed metadata**: Preserves timestamps, models, URLs, citations
+- **Project organization**: Automatically groups ChatGPT Project conversations
+- **Transparent filtering**: Logs what's excluded and why
+- **Memory efficient**: Processes 500MB+ exports with <2GB RAM
+
+## Performance tested
+
+Tested on personal export: c. 7k conversations (c.500MB JSON)
+- Processing time: ~100 seconds
+- Success rate: 100% (failures logged with details)
+- Output: c. 7k Markdown files organized by project
+
 ## 🚀 Quick Start
 
 ```bash
@@ -19,14 +77,43 @@ python extract.py conversations.json output_folder/
 python -m chatgpt_extractor conversations.json output_folder/
 ```
 
-## ✨ Features
+## Output Structure 
 
-- **100% Success Rate** - Robust error handling for all edge cases
-- **High Performance** - Processes 65-100 conversations/second
-- **Schema Evolution** - Tracks format changes automatically
-- **Progress Tracking** - Real-time progress with ETA
-- **Project Organization** - Auto-groups conversations by project
-- **Comprehensive Logging** - Detailed failure analysis
+### Output Folders and files 
+
+output/
+├── Regular_Conversation.md          # Standard conversations
+├── Technical_Discussion.md
+├── project_g-p-abc123/              # ChatGPT Projects
+│   ├── Project_Analysis.md
+│   └── Project_Planning.md
+├── schema_evolution.log             # Unknown patterns found
+└── conversion_log.log               # Extraction failures (if any)
+
+### Each Markdown file contains 
+
+#### Metadata
+---
+id: unique-conversation-id
+title: "Conversation Title"
+created: 2024-01-15T10:30:00Z
+updated: 2024-01-15T11:45:00Z
+model: gpt-4
+project_id: g-p-abc123  # If part of a project
+chat_url: https://chatgpt.com/c/unique-conversation-id
+---
+
+#### # Conversation Title
+
+#### ## System
+[Your custom instructions appear here]
+
+#### ## User
+Your message with [File: document.pdf] references
+
+#### ## Assistant
+Response with preserved formatting...
+
 
 ## 📦 Installation
 
@@ -44,11 +131,6 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Using pip (when published)
-
-```bash
-pip install chatgpt-conversation-extractor
-```
 
 ## 📖 Usage
 
