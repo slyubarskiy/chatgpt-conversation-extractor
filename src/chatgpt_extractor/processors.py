@@ -122,11 +122,10 @@ class MessageProcessor:
             if parts:
                 return self.extract_from_parts(parts, conv_id)
                 
-        elif content_type == 'user_editable_context':
-            # Custom instructions / System prompt
+        elif content_type == 'user_editable_context':  # Custom GPT instructions
             text = content.get('text', '')
             if text:
-                # Extract just the instructions part
+                # Strip OpenAI's wrapper text from custom instructions
                 lines = text.split('\n')
                 result_lines = []
                 in_instructions = False
@@ -138,8 +137,7 @@ class MessageProcessor:
                         result_lines.append(line)
                 
                 result = '\n'.join(result_lines).strip()
-                
-                # Fallback: remove known wrapper phrases
+                # If extraction failed, try direct wrapper removal
                 if not result or len(result) > len(text) * 0.9:
                     result = text
                     for wrapper in ['The user provided the following information about themselves:',
@@ -148,14 +146,12 @@ class MessageProcessor:
                 
                 return result if result else None
                 
-        elif content_type == 'tether_browsing_display':
-            # Web browsing result
+        elif content_type == 'tether_browsing_display':  # Rendered webpage
             result = content.get('result', '')
             if result:
                 return result
                 
-        elif content_type == 'tether_quote':
-            # Web page quote
+        elif content_type == 'tether_quote':  # Web search citation
             title = content.get('title', '')
             text = content.get('text', '')
             url = content.get('url', '')
@@ -170,8 +166,7 @@ class MessageProcessor:
             
             return '\n'.join(parts) if parts else None
         
-        elif content_type == 'sonic_webpage':
-            # Sonic web reader result
+        elif content_type == 'sonic_webpage':  # Web reader content
             text = content.get('text', '')
             url = content.get('url', '')
             if text:

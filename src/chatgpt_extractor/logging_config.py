@@ -16,18 +16,15 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Union
 
 
-# Configuration constants
 DEFAULT_LOG_FORMAT = "[%(asctime)s] [%(levelname)-8s] [%(name)s:%(funcName)s:%(lineno)d] - %(message)s"
 JSON_LOG_FORMAT = '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "module": "%(name)s", "function": "%(funcName)s", "line": %(lineno)d, "message": "%(message)s"}'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
-# Log file names (generic for any conversation extractor)
 LOG_DIR_NAME = "logs"
 LOG_PROCESSING_FILE = "extraction_processing.log"
 LOG_ERROR_FILE = "extraction_errors.log"
 LOG_CRITICAL_FILE = "extraction_critical.log"
 
-# Size limits for log rotation (10MB default)
 MAX_LOG_SIZE = 10 * 1024 * 1024  # 10MB
 BACKUP_COUNT = 5
 
@@ -46,7 +43,7 @@ class MillisecondFormatter(logging.Formatter):
         return s
     
     def format(self, record):
-        # Normalize module name for main execution
+        # __main__ becomes 'main' for cleaner log output
         if record.module == '__main__':
             record.module = 'main'
         

@@ -1,5 +1,5 @@
 """
-Additional tests to improve code coverage to 80%+.
+Integration tests for edge cases in conversation graph traversal and content extraction.
 """
 
 import json
@@ -16,10 +16,14 @@ from chatgpt_extractor.trackers import SchemaEvolutionTracker, ProgressTracker
 
 
 class TestCoverageImprovement:
-    """Tests focused on improving coverage for uncovered code paths."""
+    """Edge case validation for graph traversal, content filtering, and schema evolution.
+    
+    These tests target specific code paths identified through coverage analysis,
+    particularly around None handling, branched conversations, and content type variations.
+    """
     
     def test_extractor_full_workflow(self, tmp_path):
-        """Test complete extraction workflow with various content types."""
+        """End-to-end extraction with nested nodes and code content type validation."""
         conversations = [{
             "id": "test-123",
             "title": "Test Conversation",
@@ -53,7 +57,7 @@ class TestCoverageImprovement:
         assert (output_dir / "Test Conversation.md").exists()
         
     def test_extractor_with_project_conversation(self, tmp_path):
-        """Test extraction with project-based conversation."""
+        """Project folder creation and gizmo_id-based conversation grouping."""
         conversations = [{
             "id": "proj-456",
             "title": "Project Chat",
@@ -79,7 +83,7 @@ class TestCoverageImprovement:
         assert (output_dir / "g-p-myproject" / "Project Chat.md").exists()
     
     def test_message_processor_content_types(self):
-        """Test various content type processing."""
+        """Content type handler coverage for text, code, and execution_output."""
         tracker = SchemaEvolutionTracker()
         processor = MessageProcessor(tracker)
         
@@ -108,7 +112,7 @@ class TestCoverageImprovement:
         assert "Output: 42" in result
     
     def test_message_filtering(self):
-        """Test message filtering logic."""
+        """Message visibility filtering based on metadata flags and role combinations."""
         tracker = SchemaEvolutionTracker()
         processor = MessageProcessor(tracker)
         
@@ -134,7 +138,7 @@ class TestCoverageImprovement:
         assert processor.should_filter_message(msg3) is False
     
     def test_schema_evolution_tracker(self):
-        """Test schema evolution tracking."""
+        """Schema discovery tracking with 10-sample limit enforcement."""
         tracker = SchemaEvolutionTracker()
         
         # Track content types
@@ -156,7 +160,7 @@ class TestCoverageImprovement:
         assert "new_role" in report
     
     def test_progress_tracker_operations(self):
-        """Test progress tracker functionality."""
+        """Progress metrics calculation and failure rate tracking."""
         tracker = ProgressTracker(100)
         
         # Update progress
@@ -176,7 +180,7 @@ class TestCoverageImprovement:
         assert stats["success_rate"] > 0
     
     def test_filename_sanitization(self):
-        """Test filename sanitization."""
+        """Cross-platform filename sanitization with 100-char truncation."""
         extractor = ConversationExtractorV2("dummy.json", "output")
         
         # Normal title
@@ -195,7 +199,7 @@ class TestCoverageImprovement:
         assert len(sanitized) == 100
     
     def test_web_url_extraction(self):
-        """Test URL extraction from messages."""
+        """URL pattern matching from message parts and metadata citations."""
         tracker = SchemaEvolutionTracker()
         processor = MessageProcessor(tracker)
         
@@ -213,7 +217,7 @@ class TestCoverageImprovement:
         assert "http://test.org" in urls
     
     def test_backward_traverse_complex(self):
-        """Test backward traversal with complex graph."""
+        """Branch isolation in forked conversation DAG structures."""
         extractor = ConversationExtractorV2("dummy.json", "output")
         
         # Create a graph with branches
@@ -242,7 +246,7 @@ class TestCoverageImprovement:
         assert messages_b[1]["content"] == "Branch B2"
     
     def test_citation_extraction(self):
-        """Test citation extraction from metadata."""
+        """Citation metadata extraction from nested dictionary structures."""
         tracker = SchemaEvolutionTracker()
         processor = MessageProcessor(tracker)
         
@@ -262,7 +266,7 @@ class TestCoverageImprovement:
         assert len(citations) == 2  # Should extract both citations
     
     def test_file_attachment_extraction(self):
-        """Test file attachment extraction."""
+        """Attachment metadata parsing for uploaded file references."""
         tracker = SchemaEvolutionTracker()
         processor = MessageProcessor(tracker)
         

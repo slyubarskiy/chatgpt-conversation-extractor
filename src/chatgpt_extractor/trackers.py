@@ -26,7 +26,6 @@ class SchemaEvolutionTracker:
     finish_types: Set[str] = field(default_factory=set)
     unknown_samples: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
     
-    # Known patterns for comparison
     KNOWN_CONTENT_TYPES = {
         'text', 'code', 'multimodal_text', 'execution_output', 
         'tether_quote', 'tether_browsing_display', 'user_editable_context',
@@ -42,39 +41,39 @@ class SchemaEvolutionTracker:
     }
     
     def track_content_type(self, content_type: str, conv_id: str) -> None:
-        """Track content types and log unknowns."""
+        """Track content types, capturing first 10 unknown patterns."""
         self.content_types.add(content_type)
         if content_type and content_type not in self.KNOWN_CONTENT_TYPES:
             if len(self.unknown_samples['content_types']) < 10:
                 self.unknown_samples['content_types'].append(f"{conv_id}: {content_type}")
     
     def track_author_role(self, role: str, conv_id: str) -> None:
-        """Track author roles."""
+        """Track message author roles with unknown sample collection."""
         self.author_roles.add(role)
         if role and role not in self.KNOWN_ROLES:
             if len(self.unknown_samples['author_roles']) < 10:
                 self.unknown_samples['author_roles'].append(f"{conv_id}: {role}")
     
     def track_recipient(self, recipient: str, conv_id: str) -> None:
-        """Track recipient values (tools)."""
+        """Track tool recipient identifiers for schema discovery."""
         if recipient:
             self.recipient_values.add(recipient)
     
     def track_metadata_keys(self, metadata: Dict[str, Any], conv_id: str) -> None:
-        """Track metadata field names."""
+        """Discover metadata schema from field presence patterns."""
         if metadata:
             for key in metadata.keys():
                 self.metadata_keys.add(key)
     
     def track_part_type(self, part_type: str, conv_id: str) -> None:
-        """Track part types in multimodal content."""
+        """Track multimodal part types (images, audio, video)."""
         self.part_types.add(part_type)
         if part_type and part_type not in self.KNOWN_PART_TYPES:
             if len(self.unknown_samples['part_types']) < 10:
                 self.unknown_samples['part_types'].append(f"{conv_id}: {part_type}")
     
     def track_finish_type(self, finish_type: str, conv_id: str) -> None:
-        """Track finish_details types."""
+        """Track conversation termination reasons (stop, error, etc.)."""
         if finish_type:
             self.finish_types.add(finish_type)
     
@@ -87,7 +86,6 @@ class SchemaEvolutionTracker:
         report.append("="*60)
         report.append("")
         
-        # Content Types
         report.append("## Content Types")
         known = self.content_types & self.KNOWN_CONTENT_TYPES
         unknown = self.content_types - self.KNOWN_CONTENT_TYPES
@@ -103,7 +101,6 @@ class SchemaEvolutionTracker:
                     report.append(f"    {sample}")
         report.append("")
         
-        # Author Roles
         report.append("## Author Roles")
         known = self.author_roles & self.KNOWN_ROLES
         unknown = self.author_roles - self.KNOWN_ROLES
@@ -119,7 +116,6 @@ class SchemaEvolutionTracker:
                     report.append(f"    {sample}")
         report.append("")
         
-        # Part Types
         report.append("## Part Types in Multimodal Content")
         known = self.part_types & self.KNOWN_PART_TYPES
         unknown = self.part_types - self.KNOWN_PART_TYPES
@@ -135,7 +131,6 @@ class SchemaEvolutionTracker:
                     report.append(f"    {sample}")
         report.append("")
         
-        # Recipients
         if self.recipient_values:
             report.append("## Recipients (Tools)")
             report.append(f"  Unique recipients found: {len(self.recipient_values)}")
@@ -143,7 +138,6 @@ class SchemaEvolutionTracker:
                 report.append(f"    - {recipient}")
             report.append("")
         
-        # Finish Types
         if self.finish_types:
             report.append("## Finish Types")
             report.append(f"  Unique finish types found: {len(self.finish_types)}")
@@ -151,7 +145,6 @@ class SchemaEvolutionTracker:
                 report.append(f"    - {ft}")
             report.append("")
         
-        # Metadata Keys
         if self.metadata_keys:
             report.append("## Metadata Keys")
             report.append(f"  Total unique keys: {len(self.metadata_keys)}")
@@ -170,12 +163,12 @@ class ProgressTracker:
     last_update: float = field(default_factory=time.time)
     
     def update(self, success: bool = True) -> None:
-        """Update progress counters."""
+        """Increment counters and trigger display at milestones."""
         self.processed += 1
         if not success:
             self.failed += 1
         
-        # Show progress every 100 items or at milestones
+        # Update display: every 100 items, at completion, or every 5 seconds
         current_time = time.time()
         if (self.processed % 100 == 0 or 
             self.processed == self.total or
@@ -198,18 +191,15 @@ class ProgressTracker:
         
         percent = (self.processed / self.total * 100) if self.total > 0 else 0
         
-        # Format ETA
         if eta < 60:
             eta_str = f"{eta:.0f}s"
         else:
             eta_str = f"{eta/60:.1f}m"
         
-        # Use tqdm.write if available, otherwise print
         progress_msg = f"  Progress: {self.processed}/{self.total} ({percent:.1f}%) | " \
                       f"Failed: {self.failed} | Rate: {rate:.1f}/s | ETA: {eta_str}"
         
         if TQDM_AVAILABLE:
-            # Clear current line and write progress
             tqdm.write(f"\r{progress_msg}", end='', file=None, nolock=True)
         else:
             print(f"\r{progress_msg}", end='', flush=True)

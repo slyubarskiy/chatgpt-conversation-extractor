@@ -13,7 +13,11 @@ from chatgpt_extractor.trackers import SchemaEvolutionTracker, ProgressTracker
 
 
 class TestSchemaEvolutionTracker:
-    """Test suite for SchemaEvolutionTracker."""
+    """Validates schema pattern detection and evolution monitoring.
+    
+    Ensures the tracker correctly identifies unknown content types, roles,
+    and part types while maintaining sample limits for analysis.
+    """
     
     @pytest.fixture
     def tracker(self):
@@ -21,13 +25,13 @@ class TestSchemaEvolutionTracker:
         return SchemaEvolutionTracker()
     
     def test_track_known_content_type(self, tracker):
-        """Test tracking of known content types."""
+        """Ensures known content types don't trigger unknown pattern collection."""
         tracker.track_content_type('text', 'conv-1')
         assert 'text' in tracker.content_types
         assert len(tracker.unknown_samples['content_types']) == 0
     
     def test_track_unknown_content_type(self, tracker):
-        """Test tracking of unknown content types."""
+        """Validates detection and sample collection for new content types."""
         tracker.track_content_type('new_type', 'conv-1')
         assert 'new_type' in tracker.content_types
         assert 'conv-1: new_type' in tracker.unknown_samples['content_types']
@@ -90,7 +94,11 @@ class TestSchemaEvolutionTracker:
 
 
 class TestProgressTracker:
-    """Test suite for ProgressTracker."""
+    """Validates extraction progress monitoring and ETA calculations.
+    
+    Ensures accurate success/failure tracking, rate calculations,
+    and handles edge cases like zero totals.
+    """
     
     def test_initialization(self):
         """Test progress tracker initialization."""
