@@ -12,8 +12,8 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 setup(
     name="chatgpt-conversation-extractor",
     version="2.0.0",
-    author="ChatGPT Extractor Contributors",
-    description="Extract and convert ChatGPT conversation exports from JSON to Markdown",
+    author="Sergey Lyubarskiy",
+    description="Extract and convert ChatGPT conversation exports from single conversation.json file included in OpenAI's ChatGPT data export into individual Markdown files (active thread + metadata)",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/chatgpt-conversation-extractor",
@@ -21,7 +21,7 @@ setup(
     package_dir={"": "src"},
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "Intended Audience :: Developers",
+        "Intended Audience :: Developers, Data Scientists, Enthusiasts",
         "Intended Audience :: End Users/Desktop",
         "Topic :: Text Processing :: Markup :: Markdown",
         "Topic :: Utilities",

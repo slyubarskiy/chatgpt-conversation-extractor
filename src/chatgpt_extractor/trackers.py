@@ -8,6 +8,12 @@ from typing import Dict, List, Set, Any
 from collections import defaultdict
 from datetime import datetime
 
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+
 
 @dataclass
 class SchemaEvolutionTracker:
@@ -198,10 +204,15 @@ class ProgressTracker:
         else:
             eta_str = f"{eta/60:.1f}m"
         
-        # Clear line and print progress
-        print(f"\r  Progress: {self.processed}/{self.total} ({percent:.1f}%) | "
-              f"Failed: {self.failed} | Rate: {rate:.1f}/s | ETA: {eta_str}", 
-              end='', flush=True)
+        # Use tqdm.write if available, otherwise print
+        progress_msg = f"  Progress: {self.processed}/{self.total} ({percent:.1f}%) | " \
+                      f"Failed: {self.failed} | Rate: {rate:.1f}/s | ETA: {eta_str}"
+        
+        if TQDM_AVAILABLE:
+            # Clear current line and write progress
+            tqdm.write(f"\r{progress_msg}", end='', file=None, nolock=True)
+        else:
+            print(f"\r{progress_msg}", end='', flush=True)
     
     def final_stats(self) -> Dict[str, Any]:
         """Return final statistics."""

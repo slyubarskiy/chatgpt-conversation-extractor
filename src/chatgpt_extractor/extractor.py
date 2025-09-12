@@ -15,6 +15,7 @@ import yaml
 
 from .processors import MessageProcessor
 from .trackers import SchemaEvolutionTracker, ProgressTracker
+from .logging_config import get_logger, log_exception
 
 
 class ConversationExtractorV2:
@@ -27,9 +28,18 @@ class ConversationExtractorV2:
             input_file: Path to conversations.json
             output_dir: Directory for output markdown files
         """
+        self.logger = get_logger(__name__)
         self.input_file = Path(input_file)
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            self.logger.critical(f"Permission denied creating output directory {self.output_dir}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, f"creating output directory {self.output_dir}")
+            raise
         
         # Initialize components
         self.schema_tracker = SchemaEvolutionTracker()
@@ -40,17 +50,30 @@ class ConversationExtractorV2:
     
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
-        print(f"ChatGPT Conversation Extractor v2.0")
-        print(f"{'='*60}")
+        self.logger.info(f"ChatGPT Conversation Extractor v2.0")
+        self.logger.info(f"{'='*60}")
         
-        # Load conversations
-        print(f"Loading conversations from {self.input_file}...")
-        with open(self.input_file, 'r', encoding='utf-8') as f:
-            conversations = json.load(f)
+        # Load conversations with exception handling
+        try:
+            self.logger.info(f"Loading conversations from {self.input_file}")
+            with open(self.input_file, 'r', encoding='utf-8') as f:
+                conversations = json.load(f)
+        except FileNotFoundError:
+            self.logger.critical(f"Input file not found: {self.input_file}")
+            raise
+        except json.JSONDecodeError as e:
+            self.logger.critical(f"Invalid JSON in {self.input_file}: Line {e.lineno}, Column {e.colno}")
+            self.logger.debug(f"JSON error details: {e.msg}")
+            raise
+        except PermissionError as e:
+            self.logger.critical(f"Permission denied reading {self.input_file}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, "loading conversations")
+            raise
         
-        print(f"Found {len(conversations)} conversations to process")
-        print(f"Output directory: {self.output_dir}")
-        print()
+        self.logger.info(f"Found {len(conversations)} conversations to process")
+        self.logger.info(f"Output directory: {self.output_dir}")
         
         # Initialize progress tracking
         progress = ProgressTracker(total=len(conversations))
@@ -66,8 +89,9 @@ class ConversationExtractorV2:
                 self.log_conversion_failure(conv, conv_id, title, e)
                 progress.update(success=False)
         
-        # Clear progress line
-        print()
+        # Clear progress line for clean output
+        if not self.logger.handlers:
+            print()  # Only print if no logging handlers
         
         # Save tracking reports
         self.save_schema_report()
@@ -79,6 +103,11 @@ class ConversationExtractorV2:
     
     def process_conversation(self, conv: Dict[str, Any]) -> None:
         """Process single conversation to markdown."""
+        # Handle None or invalid input
+        if not conv:
+            self.logger.warning("Skipping None or empty conversation")
+            return
+            
         # Extract metadata
         metadata = self.extract_metadata(conv)
         conv_id = metadata['id']
@@ -441,7 +470,14 @@ class ConversationExtractorV2:
         if project_id := metadata.get('project_id'):
             # Create project directory
             project_dir = self.output_dir / project_id
-            project_dir.mkdir(exist_ok=True)
+            try:
+                project_dir.mkdir(exist_ok=True)
+            except PermissionError:
+                self.logger.error(f"Permission denied creating project directory {project_dir}")
+                raise
+            except Exception as e:
+                log_exception(self.logger, e, f"creating project directory {project_dir}")
+                raise
             file_path = project_dir / f"{safe_title}.md"
         else:
             file_path = self.output_dir / f"{safe_title}.md"
@@ -461,9 +497,20 @@ class ConversationExtractorV2:
                     break
                 counter += 1
         
-        # Write file
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        # Write file with exception handling
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            self.logger.debug(f"Successfully wrote {file_path}")
+        except PermissionError:
+            self.logger.error(f"Permission denied writing to {file_path}")
+            raise
+        except IOError as e:
+            self.logger.error(f"I/O error writing to {file_path}: {e}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, f"writing to {file_path}")
+            raise
     
     def sanitize_filename(self, title: str, max_length: int = 100) -> str:
         """Convert title to safe filename."""
@@ -490,26 +537,31 @@ class ConversationExtractorV2:
         """Print extraction summary."""
         stats = progress.final_stats()
         
-        print()
-        print("="*60)
-        print("EXTRACTION COMPLETE!")
-        print("="*60)
-        print(f"  Total conversations: {stats['total']}")
-        print(f"  Successfully processed: {stats['processed'] - stats['failed']}")
-        print(f"  Failed: {stats['failed']}")
-        print(f"  Success rate: {stats['success_rate']:.1f}%")
-        print(f"  Time elapsed: {stats['elapsed_time']:.1f}s")
-        print(f"  Processing rate: {stats['rate']:.1f} conv/s")
-        print(f"  Output directory: {self.output_dir}")
-        print("="*60)
+        self.logger.info("")
+        self.logger.info("="*60)
+        self.logger.info("EXTRACTION COMPLETE!")
+        self.logger.info("="*60)
+        self.logger.info(f"  Total conversations: {stats['total']}")
+        self.logger.info(f"  Successfully processed: {stats['processed'] - stats['failed']}")
+        self.logger.info(f"  Failed: {stats['failed']}")
+        self.logger.info(f"  Success rate: {stats['success_rate']:.1f}%")
+        self.logger.info(f"  Time elapsed: {stats['elapsed_time']:.1f}s")
+        self.logger.info(f"  Processing rate: {stats['rate']:.1f} conv/s")
+        self.logger.info(f"  Output directory: {self.output_dir}")
+        self.logger.info("="*60)
     
     def save_schema_report(self) -> None:
         """Save schema evolution tracking report."""
         report_path = self.output_dir / 'schema_evolution.log'
         report = self.schema_tracker.generate_report()
         
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
+        try:
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report)
+            self.logger.debug(f"Schema report saved to {report_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to save schema report: {e}")
+            # Non-critical, so we don't raise
     
     def log_conversion_failure(self, conv: Dict[str, Any], conv_id: str, title: str, 
                                error: Exception) -> None:
@@ -613,63 +665,69 @@ class ConversationExtractorV2:
         
         log_path = self.output_dir / 'conversion_log.log'
         
-        with open(log_path, 'w', encoding='utf-8') as f:
-            # Write header
-            f.write("="*80 + "\n")
-            f.write("CONVERSATION EXTRACTION FAILURE LOG\n")
-            f.write(f"Generated: {datetime.now().isoformat()}\n")
-            f.write(f"Total Failures: {len(self.conversion_failures)}\n")
-            f.write("="*80 + "\n\n")
+        try:
+            with open(log_path, 'w', encoding='utf-8') as f:
+                # Write header
+                f.write("="*80 + "\n")
+                f.write("CONVERSATION EXTRACTION FAILURE LOG\n")
+                f.write(f"Generated: {datetime.now().isoformat()}\n")
+                f.write(f"Total Failures: {len(self.conversion_failures)}\n")
+                f.write("="*80 + "\n\n")
             
-            # Summary by category
-            categories = defaultdict(int)
-            for fail in self.conversion_failures:
-                categories[fail['category']] += 1
-            
-            f.write("FAILURE CATEGORIES:\n")
-            for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
-                f.write(f"  {cat}: {count}\n")
-            f.write("\n")
-            
-            # Failed conversation IDs
-            f.write("FAILED CONVERSATION IDs:\n")
-            for fail in self.conversion_failures:
-                f.write(f"  - {fail['conversation_id']}\n")
-            f.write("\n")
-            
-            # Detailed failures
-            f.write("="*80 + "\n")
-            f.write("DETAILED FAILURE INFORMATION\n")
-            f.write("="*80 + "\n\n")
-            
-            for i, fail in enumerate(self.conversion_failures, 1):
-                f.write(f"Failure #{i}\n")
-                f.write(f"ID: {fail['conversation_id']}\n")
-                f.write(f"Title: {fail['title']}\n")
-                f.write(f"Category: {fail['category']}\n")
-                f.write(f"Error Type: {fail['error_type']}\n")
-                f.write(f"Error: {fail['error_message']}\n")
+                # Summary by category
+                categories = defaultdict(int)
+                for fail in self.conversion_failures:
+                    categories[fail['category']] += 1
                 
-                # Structural issues
-                if fail['structural_issues']:
-                    f.write(f"Structural Issues: {', '.join(fail['structural_issues'])}\n")
-                
-                # Problematic nodes
-                if fail['problematic_nodes']:
-                    f.write(f"\nProblematic Nodes (sample):\n")
-                    for node in fail['problematic_nodes'][:3]:
-                        f.write(f"  - Node {node['node_id']}: role={node.get('role')}, ")
-                        f.write(f"content_type={node.get('content_type')}, issue={node.get('issue')}\n")
-                
-                # Trace
-                if fail['trace_snippet']:
-                    f.write(f"\nTrace: {fail['trace_snippet']}\n")
-                
-                f.write("\n" + "="*80 + "\n\n")
+                f.write("FAILURE CATEGORIES:\n")
+                for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
+                    f.write(f"  {cat}: {count}\n")
+                f.write("\n")
             
-            # Write JSON version for programmatic access
-            json_path = self.output_dir / 'conversion_failures.json'
-            with open(json_path, 'w', encoding='utf-8') as jf:
-                json.dump(self.conversion_failures, jf, indent=2, default=str)
+                # Failed conversation IDs
+                f.write("FAILED CONVERSATION IDs:\n")
+                for fail in self.conversion_failures:
+                    f.write(f"  - {fail['conversation_id']}\n")
+                f.write("\n")
             
-            f.write(f"\nJSON version saved to: conversion_failures.json\n")
+                # Detailed failures
+                f.write("="*80 + "\n")
+                f.write("DETAILED FAILURE INFORMATION\n")
+                f.write("="*80 + "\n\n")
+                
+                for i, fail in enumerate(self.conversion_failures, 1):
+                    f.write(f"Failure #{i}\n")
+                    f.write(f"ID: {fail['conversation_id']}\n")
+                    f.write(f"Title: {fail['title']}\n")
+                    f.write(f"Category: {fail['category']}\n")
+                    f.write(f"Error Type: {fail['error_type']}\n")
+                    f.write(f"Error: {fail['error_message']}\n")
+                    
+                    # Structural issues
+                    if fail['structural_issues']:
+                        f.write(f"Structural Issues: {', '.join(fail['structural_issues'])}\n")
+                    
+                    # Problematic nodes
+                    if fail['problematic_nodes']:
+                        f.write(f"\nProblematic Nodes (sample):\n")
+                        for node in fail['problematic_nodes'][:3]:
+                            f.write(f"  - Node {node['node_id']}: role={node.get('role')}, ")
+                            f.write(f"content_type={node.get('content_type')}, issue={node.get('issue')}\n")
+                    
+                    # Trace
+                    if fail['trace_snippet']:
+                        f.write(f"\nTrace: {fail['trace_snippet']}\n")
+                    
+                    f.write("\n" + "="*80 + "\n\n")
+            
+                # Write JSON version for programmatic access
+                json_path = self.output_dir / 'conversion_failures.json'
+                try:
+                    with open(json_path, 'w', encoding='utf-8') as jf:
+                        json.dump(self.conversion_failures, jf, indent=2, default=str)
+                    f.write(f"\nJSON version saved to: conversion_failures.json\n")
+                except Exception as e:
+                    self.logger.warning(f"Failed to save JSON failure log: {e}")
+        except Exception as e:
+            self.logger.warning(f"Failed to save conversion log: {e}")
+            # Non-critical, so we don't raise

@@ -7,34 +7,36 @@ import argparse
 from pathlib import Path
 
 from .extractor import ConversationExtractorV2
+from .logging_config import configure_production_logging, get_logger, log_exception
 
 
 def run_failure_analysis(input_file: str, output_dir: str) -> None:
     """Run failure analysis if extraction had failures."""
+    logger = get_logger(__name__)
     log_file = Path(output_dir) / 'conversion_log.log'
     if not log_file.exists():
-        print("\nNo failures to analyze (conversion_log.log not found)")
+        logger.info("No failures to analyze (conversion_log.log not found)")
         return
     
     # Check if we have failures
     with open(log_file, 'r') as f:
         content = f.read()
         if 'Failed conversations: 0' in content or 'FAILURE CATEGORIES' not in content:
-            print("\nNo failures to analyze (0 failures recorded)")
+            logger.info("No failures to analyze (0 failures recorded)")
             return
     
-    print("\n" + "="*60)
-    print("RUNNING FAILURE ANALYSIS")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("RUNNING FAILURE ANALYSIS")
+    logger.info("="*60)
     
     try:
         # Try to import analyze_failures if available
         from .analyze_failures import analyze_failures
         analyze_failures(input_file, sample_size=20)
-        print("\nFailure analysis complete. See failure_analysis_report.json")
+        logger.info("Failure analysis complete. See failure_analysis_report.json")
     except ImportError:
-        print("\nNote: analyze_failures module not found. Skipping detailed analysis.")
-        print("Basic failure information available in conversion_log.log")
+        logger.debug("analyze_failures module not found. Skipping detailed analysis.")
+        logger.info("Basic failure information available in conversion_log.log")
 
 
 def main() -> None:
@@ -61,24 +63,42 @@ Examples:
     parser.add_argument('--analyze-failures', action='store_true',
                        help='Run failure analysis after extraction if failures occur')
     
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug logging')
+    
     parser.add_argument('--version', action='version',
                        version='ChatGPT Conversation Extractor v2.0')
     
     args = parser.parse_args()
     
-    # Check input file exists
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        print(f"Error: Input file '{args.input_file}' not found")
+    # Set up logging first
+    logger = configure_production_logging(debug=args.debug)
+    
+    try:
+        logger.info("Starting ChatGPT Conversation Extractor")
+        
+        # Check input file exists
+        input_path = Path(args.input_file)
+        if not input_path.exists():
+            logger.critical(f"Input file '{args.input_file}' not found")
+            sys.exit(1)
+        
+        # Run extraction
+        extractor = ConversationExtractorV2(args.input_file, args.output_dir)
+        extractor.extract_all()
+        
+        # Run failure analysis if requested
+        if args.analyze_failures:
+            run_failure_analysis(args.input_file, args.output_dir)
+            
+        logger.info("Extraction completed successfully")
+        
+    except KeyboardInterrupt:
+        logger.info("Extraction cancelled by user")
+        sys.exit(0)
+    except Exception as e:
+        log_exception(logger, e, "main extraction process")
         sys.exit(1)
-    
-    # Run extraction
-    extractor = ConversationExtractorV2(args.input_file, args.output_dir)
-    extractor.extract_all()
-    
-    # Run failure analysis if requested
-    if args.analyze_failures:
-        run_failure_analysis(args.input_file, args.output_dir)
 
 
 if __name__ == '__main__':
