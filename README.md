@@ -54,7 +54,11 @@ data/output_md/
 ## Markdown Format
 
 Each markdown file includes:
-- YAML frontmatter with metadata (ID, timestamps, model, project)
+- YAML frontmatter with enhanced metadata:
+  - Basic: ID, timestamps, model, chat URL, project
+  - Statistics: Total messages, code messages count
+  - Content types: List of message types in conversation
+  - Custom instructions: User's ChatGPT personalization settings
 - Conversation title as header
 - User and assistant messages with role indicators
 - Code blocks with syntax highlighting
@@ -99,6 +103,8 @@ Each markdown file includes:
 - [Technical Reference](docs/TECHNICAL_REFERENCE.md) - API documentation and data structures
 - [Operations Guide](docs/OPERATIONS.md) - Troubleshooting and maintenance
 - [Quick Reference](docs/QUICK_REFERENCE.md) - Command cheat sheet
+- [Custom Instructions](docs/CUSTOM_INSTRUCTIONS_EXTRACTION.md) - How personalization settings are extracted
+- [Schema Notes](docs/SCHEMA_NOTES.md) - Important discoveries about export format
 
 ## Architecture
 
