@@ -54,7 +54,7 @@ class TestCoverageImprovement:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         extractor.extract_all()
         
-        assert (output_dir / "Test Conversation.md").exists()
+        assert (output_dir / "md" / "Test Conversation.md").exists()
         
     def test_extractor_with_project_conversation(self, tmp_path):
         """Project folder creation and gizmo_id-based conversation grouping."""
@@ -80,7 +80,7 @@ class TestCoverageImprovement:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         extractor.extract_all()
         
-        assert (output_dir / "g-p-myproject" / "Project Chat.md").exists()
+        assert (output_dir / "md" / "g-p-myproject" / "Project Chat.md").exists()
     
     def test_message_processor_content_types(self):
         """Content type handler coverage for text, code, and execution_output."""

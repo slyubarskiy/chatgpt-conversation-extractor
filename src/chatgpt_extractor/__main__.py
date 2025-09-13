@@ -54,8 +54,9 @@ def validate_cli_arguments(args: argparse.Namespace) -> None:
         sys.exit(1)
     
     # Ensure format selection aligns with output type to prevent configuration errors
-    if args.json_format and args.output_format == 'markdown':
-        logger.error("--json-format can only be used when --output-format includes 'json' or 'both'")
+    # Only validate if JSON output is actually being used (via json_dir or json_file)
+    if (args.json_dir or args.json_file) and args.output_format == 'markdown':
+        logger.error("JSON output options can only be used when --output-format includes 'json' or 'both'")
         sys.exit(1)
     
     # Single file path only makes sense for consolidated output, not individual files

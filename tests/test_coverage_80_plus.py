@@ -65,9 +65,9 @@ class TestExtractorComprehensive:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         extractor.extract_all()
         
-        # Check files created
+        # Check files created in md/ subdirectory
         assert output_dir.exists()
-        assert (output_dir / "Normal Chat.md").exists()
+        assert (output_dir / "md" / "Normal Chat.md").exists()
         
     def test_process_conversation_with_errors(self, tmp_path):
         """Test process_conversation error handling."""
@@ -221,10 +221,10 @@ class TestExtractorComprehensive:
         }
         
         content = "# Test Content"
-        extractor.save_to_file(metadata, content)
+        extractor.save_markdown_file(metadata, content)
         
-        # Check project directory created
-        project_dir = tmp_path / "g-p-myproject"
+        # Check project directory created in md/ subdirectory
+        project_dir = tmp_path / "md" / "g-p-myproject"
         assert project_dir.exists()
         assert (project_dir / "Project File.md").exists()
         
@@ -508,8 +508,8 @@ class TestIntegration:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         extractor.extract_all()
         
-        # Verify results
-        project_dir = output_dir / "g-p-test-project"
+        # Verify results - project should be in md/ subdirectory
+        project_dir = output_dir / "md" / "g-p-test-project"
         assert project_dir.exists()
         
         md_file = project_dir / "Complete Test.md"

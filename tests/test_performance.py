@@ -134,8 +134,9 @@ class TestPerformance:
             # Assert minimum performance (at least 50 conv/s for simple conversations)
             assert rate >= 50, f"Performance too slow: {rate:.1f} conv/s (expected >= 50)"
             
-            # Check all files were created
-            md_files = list(output_dir.glob('*.md'))
+            # Check all files were created in md/ subdirectory
+            md_dir = output_dir / 'md'
+            md_files = list(md_dir.glob('*.md')) if md_dir.exists() else []
             assert len(md_files) == len(conversations)
     
     def test_memory_usage(self):

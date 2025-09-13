@@ -173,8 +173,8 @@ class TestCoverageFinal:
         extractor = ConversationExtractorV2(str(input_file), str(tmp_path / "output"))
         extractor.extract_all()
         
-        # Check file was created
-        assert (tmp_path / "output" / "Custom Instructions Test.md").exists()
+        # Check file was created in md/ subdirectory
+        assert (tmp_path / "output" / "md" / "Custom Instructions Test.md").exists()
         
     def test_progress_tracker_final_stats(self):
         """Test progress tracker final statistics."""

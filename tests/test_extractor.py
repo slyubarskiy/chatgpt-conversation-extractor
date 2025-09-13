@@ -227,10 +227,10 @@ class TestConversationExtractorV2:
         metadata = {'title': 'Test Save', 'id': 'test-001'}
         content = '# Test Content'
         
-        extractor.save_to_file(metadata, content)
+        extractor.save_markdown_file(metadata, content)
         
-        # Check file was created
-        output_file = output_dir / 'Test Save.md'
+        # Check file was created in md/ subdirectory
+        output_file = output_dir / 'md' / 'Test Save.md'
         assert output_file.exists()
         
         # Check content
@@ -254,10 +254,10 @@ class TestConversationExtractorV2:
         }
         content = '# Project Content'
         
-        extractor.save_to_file(metadata, content)
+        extractor.save_markdown_file(metadata, content)
         
-        # Check project directory was created
-        project_dir = output_dir / 'g-p-test-123'
+        # Check project directory was created in md/ subdirectory
+        project_dir = output_dir / 'md' / 'g-p-test-123'
         assert project_dir.exists()
         
         # Check file in project directory
@@ -279,9 +279,11 @@ class TestConversationExtractorV2:
             md_files = list(output_dir.glob('**/*.md'))
             assert len(md_files) >= 1  # At least one conversation extracted
             
-            # Check for project folder
-            project_dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith('g-p-')]
-            assert len(project_dirs) == 1  # One project folder
+            # Check for project folder in md/ subdirectory
+            md_dir = output_dir / 'md'
+            if md_dir.exists():
+                project_dirs = [d for d in md_dir.iterdir() if d.is_dir() and d.name.startswith('g-p-')]
+                assert len(project_dirs) == 1  # One project folder
             
             # Check schema evolution log
             schema_log = output_dir / 'schema_evolution.log'

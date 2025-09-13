@@ -24,7 +24,7 @@ class TestCLI:
             assert exc_info.value.code == 0
         
         captured = capsys.readouterr()
-        assert 'v2.0' in captured.out
+        assert 'v3.1' in captured.out
     
     def test_help_argument(self, capsys):
         """Test --help argument."""
