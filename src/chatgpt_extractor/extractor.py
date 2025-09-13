@@ -10,7 +10,7 @@ import time
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from collections import defaultdict
 
 import yaml
@@ -341,7 +341,7 @@ class ConversationExtractorV2:
         
         return metadata
     
-    def collect_message_statistics(self, messages: List[Dict[str, Any]], conv_id: str) -> Dict[str, Any]:
+    def collect_message_statistics(self, messages: List[Dict[str, Any]], conv_id: str) -> Dict[str, Union[int, Set[str], Optional[Dict[str, str]]]]:
         """Collect statistics from raw messages.
         
         Args:
@@ -351,7 +351,7 @@ class ConversationExtractorV2:
         Returns:
             Dictionary with message statistics
         """
-        stats = {
+        stats: Dict[str, Union[int, Set[str], Optional[Dict[str, str]]]] = {
             'code_count': 0,
             'content_types': set(),
             'custom_instructions': None
@@ -362,18 +362,26 @@ class ConversationExtractorV2:
             content = msg.get('content', {})
             content_type = content.get('content_type', '')
             if content_type:
-                stats['content_types'].add(content_type)
+                content_types = stats['content_types']
+                assert isinstance(content_types, set)
+                content_types.add(content_type)
             
             # Count code messages
             if content_type == 'code':
-                stats['code_count'] += 1
+                code_count = stats['code_count']
+                assert isinstance(code_count, int)
+                stats['code_count'] = code_count + 1
             elif content_type == 'execution_output':
-                stats['code_count'] += 1
+                code_count = stats['code_count']
+                assert isinstance(code_count, int)
+                stats['code_count'] = code_count + 1
             elif content_type == 'multimodal_text':
                 # Code outputs in multimodal messages indicate code execution occurred
                 for part in content.get('parts', []):
                     if isinstance(part, dict) and part.get('content_type') == 'code_interpreter_output':
-                        stats['code_count'] += 1
+                        code_count = stats['code_count']
+                        assert isinstance(code_count, int)
+                        stats['code_count'] = code_count + 1
                         break
             
             # Capture user's ChatGPT personalization settings from first system message
