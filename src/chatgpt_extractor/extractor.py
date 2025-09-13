@@ -200,9 +200,24 @@ class ConversationExtractorV2:
             
             # Extract custom instructions
             if content_type == 'user_editable_context' and not stats['custom_instructions']:
-                # This is the custom instructions message
-                text = content.get('text', '')
-                if text:
+                # Custom instructions can be in two places:
+                # 1. In metadata.user_context_message_data (newer format)
+                # 2. In content.text (older format)
+                
+                # First check metadata (newer format)
+                metadata = msg.get('metadata', {})
+                user_context_data = metadata.get('user_context_message_data')
+                if user_context_data and isinstance(user_context_data, dict):
+                    instructions = {}
+                    if about_user := user_context_data.get('about_user_message'):
+                        instructions['about_user_message'] = about_user
+                    if about_model := user_context_data.get('about_model_message'):
+                        instructions['about_model_message'] = about_model
+                    if instructions:
+                        stats['custom_instructions'] = instructions
+                
+                # If not found in metadata, check content.text (older format)
+                elif text := content.get('text', ''):
                     # Parse the custom instructions format
                     about_user = None
                     about_model = None
