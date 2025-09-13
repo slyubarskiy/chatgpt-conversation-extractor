@@ -328,10 +328,10 @@ class ConversationExtractorV2:
         if model := conv.get('default_model_slug'):
             metadata['model'] = model
         
-        if is_starred := conv.get('is_starred'):
-            metadata['starred'] = is_starred
-        if is_archived := conv.get('is_archived'):
-            metadata['archived'] = is_archived
+        # Always include starred and archived flags
+        # Convert None to False for consistency
+        metadata['starred'] = conv.get('is_starred', False) or False
+        metadata['archived'] = conv.get('is_archived', False)
         
         metadata['chat_url'] = f"https://chatgpt.com/c/{metadata['id']}"
         
