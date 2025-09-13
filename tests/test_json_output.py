@@ -181,8 +181,8 @@ class TestJSONOutput:
             "is_starred": True,
             "is_archived": False,
             "mapping": {
-                "n1": {"id": "n1", "parent": None, "children": ["n2", "n3"]},
-                "n2": {"id": "n2", "parent": "n1", "children": [], "message": {
+                "n1": {"id": "n1", "parent": None, "children": ["n2"]},
+                "n2": {"id": "n2", "parent": "n1", "children": ["n3"], "message": {
                     "author": {"role": "system"},
                     "content": {"content_type": "user_editable_context"},
                     "metadata": {
@@ -193,7 +193,7 @@ class TestJSONOutput:
                         }
                     }
                 }},
-                "n3": {"id": "n3", "parent": "n1", "children": [], "message": {
+                "n3": {"id": "n3", "parent": "n2", "children": [], "message": {
                     "author": {"role": "user"},
                     "content": {"content_type": "text", "parts": ["Test message"]}
                 }}

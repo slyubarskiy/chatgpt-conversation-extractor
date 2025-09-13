@@ -290,11 +290,17 @@ class ConversationExtractorV2:
         if merged:
             # Enrich metadata with usage analytics for search and filtering
             metadata['total_messages'] = len(merged)
-            metadata['code_messages'] = stats['code_count']
+            code_count = stats['code_count']
+            assert isinstance(code_count, int)
+            metadata['code_messages'] = code_count
             if stats['content_types']:
-                metadata['message_types'] = ', '.join(sorted(stats['content_types']))
+                content_types = stats['content_types']
+                assert isinstance(content_types, set)
+                metadata['message_types'] = ', '.join(sorted(content_types))
             if stats['custom_instructions']:
-                metadata['custom_instructions'] = stats['custom_instructions']
+                custom_instructions = stats['custom_instructions']
+                assert isinstance(custom_instructions, dict)
+                metadata['custom_instructions'] = custom_instructions
             
             # Generate JSON data if needed
             json_data = None
