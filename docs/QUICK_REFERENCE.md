@@ -3,30 +3,47 @@
 ## 🚀 Command Line
 
 ```bash
-# Basic usage
-python extract_conversations_v2.py
+# Basic usage (markdown only)
+python -m chatgpt_extractor
 
 # Custom paths
-python extract_conversations_v2.py input.json output_dir/
+python -m chatgpt_extractor input.json output_dir/
+
+# With JSON output (individual files)
+python -m chatgpt_extractor input.json output_dir/ --json-dir
+
+# Single JSON file
+python -m chatgpt_extractor input.json output_dir/ --json-file all.json
+
+# JSON only, no markdown
+python -m chatgpt_extractor input.json output_dir/ --no-markdown --json-dir
 
 # With logging
-python extract_conversations_v2.py 2>&1 | tee log.txt
+python -m chatgpt_extractor 2>&1 | tee log.txt
 ```
 
 ## 📁 File Structure
 
 ```
 Input:  data/raw/conversations.json
-Output: data/output_md/*.md
-Logs:   data/output_md/schema_evolution.log
-        data/output_md/conversion_log.log
+Output: data/output/
+        ├── md/*.md                    # Markdown files
+        ├── json/*.json                # JSON files (if --json-dir)
+        ├── all_conversations.json     # Single file (if --json-file)
+        ├── schema_evolution.log
+        └── conversion_log.log
 ```
 
 ## 🔑 Key Classes & Methods
 
 ```python
-# Main extractor
-extractor = ConversationExtractorV2(input_file, output_dir)
+# Main extractor with output options
+extractor = ConversationExtractorV2(
+    input_file, output_dir,
+    markdown=True,           # Generate markdown
+    json_dir=True,          # Generate individual JSONs
+    json_file='all.json'    # Generate single JSON
+)
 extractor.extract_all()
 
 # Key methods
@@ -34,7 +51,8 @@ extract_metadata(conv) → Dict
 backward_traverse(mapping, current_node, conv_id) → List[Dict]
 process_messages(messages, conv_id, conv_data) → List[Dict]
 generate_markdown(metadata, messages) → str
-save_to_file(metadata, content) → None
+generate_json_data(metadata, messages) → Dict
+save_to_file(metadata, content, format='markdown') → None
 
 # Message processor
 processor = MessageProcessor(schema_tracker)
@@ -110,14 +128,19 @@ ls data/output_md/*.md | wc -l
 python -c "import json; json.load(open('conversations.json'))"
 ```
 
-## 📝 Output Format
+## 📝 Output Formats
 
+### Markdown
 ```markdown
 ---
 id: uuid
 title: "Title"
 created: 2024-01-01T12:00:00Z
 model: gpt-4
+total_messages: 5
+code_messages: 2
+starred: false
+archived: false
 chat_url: https://chatgpt.com/c/uuid
 ---
 
@@ -128,6 +151,21 @@ Message [File: doc.pdf]
 
 ## Assistant
 Response
+```
+
+### JSON
+```json
+{
+  "metadata": {
+    "id": "uuid",
+    "title": "Title",
+    "created": "2024-01-01T12:00:00Z",
+    "total_messages": 5,
+    "starred": false,
+    "archived": false
+  },
+  "messages": [...]
+}
 ```
 
 ## 🔧 Common Fixes
@@ -206,4 +244,4 @@ Response
 8. **Graph indices** ensure proper merging
 
 ---
-*v2.0 | Python 3.8+ | PyYAML required*
+*v3.1 | Python 3.8+ | PyYAML required | JSON output support*

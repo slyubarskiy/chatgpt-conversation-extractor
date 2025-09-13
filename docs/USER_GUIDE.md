@@ -18,10 +18,13 @@ pip install pyyaml
 
 # 2. Export your ChatGPT conversations (see below)
 
-# 3. Run the extractor
-python extract_conversations_v2.py data/raw/conversations.json data/output_md
+# 3. Run the extractor (markdown output)
+python -m chatgpt_extractor data/raw/conversations.json data/output
 
-# 4. Find your markdown files in data/output_md/
+# 4. Find your files in data/output/md/
+
+# Optional: Extract to JSON format as well
+python -m chatgpt_extractor data/raw/conversations.json data/output --json-dir
 ```
 
 ## Installation
@@ -59,7 +62,7 @@ pip install -r requirements.txt
 ```bash
 # Create input/output directories
 mkdir -p data/raw
-mkdir -p data/output_md
+mkdir -p data/output
 ```
 
 ## Getting Your ChatGPT Data
@@ -82,11 +85,17 @@ Place your `conversations.json` in the `data/raw/` directory:
 
 ```
 chatgpt-extractor/
-├── extract_conversations_v2.py
+├── src/
+│   └── chatgpt_extractor/
+│       ├── __init__.py
+│       ├── __main__.py
+│       └── extractor.py
 ├── data/
 │   ├── raw/
 │   │   └── conversations.json  # ← Place here
-│   └── output_md/              # Output will go here
+│   └── output/                 # Output will go here
+│       ├── md/                 # Markdown files
+│       └── json/               # JSON files (if enabled)
 ```
 
 ## Basic Usage
@@ -94,31 +103,40 @@ chatgpt-extractor/
 ### Default Extraction
 
 ```bash
-# Uses default paths
-python extract_conversations_v2.py
+# Uses default paths (markdown only)
+python -m chatgpt_extractor
 
 # Default input: data/raw/conversations.json
-# Default output: data/output_md/
+# Default output: data/output/
 ```
 
 ### Custom Paths
 
 ```bash
 # Specify custom input and output
-python extract_conversations_v2.py /path/to/conversations.json /path/to/output
+python -m chatgpt_extractor /path/to/conversations.json /path/to/output
 
 # Example:
-python extract_conversations_v2.py ~/Downloads/conversations.json ~/Documents/ChatGPT
+python -m chatgpt_extractor ~/Downloads/conversations.json ~/Documents/ChatGPT
 ```
 
-### With Failure Analysis
+### Output Format Options
 
 ```bash
-# Run extraction with automatic failure analysis if errors occur
-python extract_conversations_v2.py --analyze-failures
+# Markdown only (default)
+python -m chatgpt_extractor conversations.json output/
+
+# Both markdown and JSON (individual files)
+python -m chatgpt_extractor conversations.json output/ --json-dir
+
+# Single consolidated JSON file
+python -m chatgpt_extractor conversations.json output/ --json-file all_conversations.json
+
+# JSON only, no markdown
+python -m chatgpt_extractor conversations.json output/ --no-markdown --json-dir
 
 # View help for all options
-python extract_conversations_v2.py --help
+python -m chatgpt_extractor --help
 ```
 
 ### What to Expect
@@ -184,18 +202,28 @@ if conv.get('update_time', 0) < cutoff_timestamp:
 ### Directory Structure
 
 ```
-data/output_md/
-├── Regular Conversation 1.md
-├── Regular Conversation 2.md
-├── Regular Conversation (2).md    # Duplicate titles numbered
-├── project_a3e43bec/              # Project folders
-│   ├── Project Conv 1.md
-│   └── Project Conv 2.md
+data/output/
+├── md/                           # Markdown output (default)
+│   ├── Regular Conversation 1.md
+│   ├── Regular Conversation 2.md
+│   ├── Regular Conversation (2).md    # Duplicate titles numbered
+│   └── project_a3e43bec/             # Project folders
+│       ├── Project Conv 1.md
+│       └── Project Conv 2.md
+├── json/                         # JSON output (if --json-dir)
+│   ├── Regular Conversation 1.json
+│   ├── Regular Conversation 2.json
+│   └── project_a3e43bec/
+│       ├── Project Conv 1.json
+│       └── Project Conv 2.json
+├── all_conversations.json        # Single file (if --json-file)
 ├── schema_evolution.log          # Format tracking
 └── conversion_log.log            # Only if failures
 ```
 
-### Markdown File Format
+### Output File Formats
+
+#### Markdown Format
 
 Each conversation becomes a markdown file with:
 
@@ -234,6 +262,46 @@ ChatGPT's response with:
 **Web Search URLs:**
 - https://searched-site1.com
 - https://searched-site2.com
+```
+
+#### JSON Format
+
+Each JSON file contains:
+
+```json
+{
+  "metadata": {
+    "id": "68c2d4c7-9cac-8332-b27d-1b666ebddb61",
+    "title": "Conversation Title",
+    "created": "2024-01-15T10:30:00Z",
+    "updated": "2024-01-15T11:45:00Z",
+    "model": "gpt-4",
+    "total_messages": 5,
+    "code_messages": 2,
+    "starred": false,
+    "archived": false
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "Your custom instructions",
+      "timestamp": "2024-01-15T10:30:00Z"
+    },
+    {
+      "role": "user",
+      "content": "User message",
+      "timestamp": "2024-01-15T10:31:00Z",
+      "files": ["document.pdf"]
+    },
+    {
+      "role": "assistant",
+      "content": "Assistant response",
+      "timestamp": "2024-01-15T10:32:00Z",
+      "citations": [...],
+      "urls": [...]
+    }
+  ]
+}
 ```
 
 ### Special Indicators

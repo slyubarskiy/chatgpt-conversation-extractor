@@ -288,7 +288,7 @@ class ConversationExtractorV2:
         merged = self.merge_continuations(processed)
         
         if merged:
-            # Add statistics to metadata
+            # Enrich metadata with usage analytics for search and filtering
             metadata['total_messages'] = len(merged)
             metadata['code_messages'] = stats['code_count']
             if stats['content_types']:
@@ -370,13 +370,13 @@ class ConversationExtractorV2:
             elif content_type == 'execution_output':
                 stats['code_count'] += 1
             elif content_type == 'multimodal_text':
-                # Check for code interpreter output in parts
+                # Code outputs in multimodal messages indicate code execution occurred
                 for part in content.get('parts', []):
                     if isinstance(part, dict) and part.get('content_type') == 'code_interpreter_output':
                         stats['code_count'] += 1
                         break
             
-            # Extract custom instructions
+            # Capture user's ChatGPT personalization settings from first system message
             if content_type == 'user_editable_context' and not stats['custom_instructions']:
                 # Custom instructions can be in two places:
                 # 1. In metadata.user_context_message_data (newer format)
@@ -805,7 +805,7 @@ class ConversationExtractorV2:
         if custom_instructions := metadata.get('custom_instructions'):
             json_data['custom_instructions'] = custom_instructions
         
-        # Process messages for JSON format
+        # Transform messages to JSON structure, preserving optional fields only when present to minimize output size
         for msg in messages:
             json_msg = {
                 'role': msg.get('role'),
@@ -813,7 +813,7 @@ class ConversationExtractorV2:
                 'timestamp': msg.get('timestamp')  # May be None for older conversations
             }
             
-            # Add optional fields if present
+            # Include auxiliary data only when present to keep JSON compact
             if citations := msg.get('citations'):
                 json_msg['citations'] = citations
             if web_urls := msg.get('web_urls'):

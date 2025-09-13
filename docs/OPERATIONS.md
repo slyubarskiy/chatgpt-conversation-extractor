@@ -46,7 +46,8 @@ ls -lh data/raw/conversations.json
 file data/raw/conversations.json  # Should be JSON
 
 # 5. Check output directory permissions
-touch data/output_md/test.txt && rm data/output_md/test.txt
+mkdir -p data/output
+touch data/output/test.txt && rm data/output/test.txt
 ```
 
 ### Input Validation
@@ -76,14 +77,15 @@ cd /path/to/chatgpt-extractor
 ls -la data/raw/conversations.json
 
 # 3. Clear previous output (optional)
-rm -rf data/output_md/*
+rm -rf data/output/*
 
-# 4. Run extraction with logging
-python extract_conversations_v2.py 2>&1 | tee extraction_$(date +%Y%m%d_%H%M%S).log
+# 4. Run extraction with logging (markdown + JSON)
+python -m chatgpt_extractor --json-dir 2>&1 | tee extraction_$(date +%Y%m%d_%H%M%S).log
 
 # 5. Verify completion
 echo "Exit code: $?"
-ls -la data/output_md/*.md | head -5
+ls -la data/output/md/*.md | head -5
+ls -la data/output/json/*.json | head -5
 ```
 
 ### SOP-002: Large File Processing
@@ -94,7 +96,7 @@ ls -la data/output_md/*.md | head -5
 free -h
 
 # 2. Run with memory monitoring
-/usr/bin/time -v python extract_conversations_v2.py
+/usr/bin/time -v python -m chatgpt_extractor
 
 # 3. Monitor in separate terminal
 watch -n 1 'ps aux | grep python | grep -v grep'
@@ -113,7 +115,7 @@ for json_file in exports/*.json; do
     
     mkdir -p "$output_dir"
     
-    python extract_conversations_v2.py "$json_file" "$output_dir" 2>&1 | \
+    python -m chatgpt_extractor "$json_file" "$output_dir" --json-dir 2>&1 | \
         tee "logs/${basename}_$(date +%Y%m%d).log"
     
     if [ $? -eq 0 ]; then
@@ -130,7 +132,7 @@ done
 
 ```bash
 # Watch progress in real-time
-python extract_conversations_v2.py 2>&1 | while read line; do
+python -m chatgpt_extractor 2>&1 | while read line; do
     echo "$(date '+%H:%M:%S') $line"
 done
 ```

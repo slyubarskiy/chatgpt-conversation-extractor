@@ -10,7 +10,9 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 - Preserves code blocks, citations, and file references
 - Groups conversations by project automatically
 - Handles 6000+ conversations efficiently with detailed logging
-- Visibility to schema evolution for transparency.
+- Visibility to schema evolution for transparency
+- **Multiple output formats**: Markdown, JSON, or both simultaneously
+- **Timestamp preservation**: Maintains original creation/update times on files
 
 ## Requirements
 
@@ -31,39 +33,63 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 # Install dependencies
 pip install pyyaml
 
-# Extract all conversations
-python extract_conversations.py data/raw/conversations.json data/output_md
+# Extract to markdown (default)
+python -m chatgpt_extractor data/raw/conversations.json data/output
 
-# Or specify custom paths
-python extract_conversations.py /path/to/conversations.json /path/to/output
+# Extract to both markdown and JSON
+python -m chatgpt_extractor data/raw/conversations.json data/output --json-dir
+
+# Extract to single JSON file
+python -m chatgpt_extractor data/raw/conversations.json data/output --json-file all_conversations.json
+
+# JSON only (no markdown)
+python -m chatgpt_extractor data/raw/conversations.json data/output --no-markdown --json-dir
 ```
 
 ## Output Structure
 
 ```
-data/output_md/
-├── Regular Conversation 1.md
-├── Regular Conversation 2.md
-├── project_XXXXXXXX/           # Project folders
-│   ├── Project Conv 1.md
-│   └── Project Conv 2.md
+data/output/
+├── md/                         # Markdown output (if enabled)
+│   ├── Regular Conversation 1.md
+│   ├── Regular Conversation 2.md
+│   └── project_XXXXXXXX/      # Project folders
+│       ├── Project Conv 1.md
+│       └── Project Conv 2.md
+├── json/                       # JSON output (if --json-dir)
+│   ├── Regular Conversation 1.json
+│   ├── Regular Conversation 2.json
+│   └── project_XXXXXXXX/
+│       ├── Project Conv 1.json
+│       └── Project Conv 2.json
+├── all_conversations.json      # Single file (if --json-file)
 ├── schema_evolution.log        # Format tracking
 └── conversion_log.log          # Failure details (if any)
 ```
 
-## Markdown Format
+## Output Formats
 
+### Markdown Format
 Each markdown file includes:
 - YAML frontmatter with enhanced metadata:
   - Basic: ID, timestamps, model, chat URL, project
   - Statistics: Total messages, code messages count
   - Content types: List of message types in conversation
   - Custom instructions: User's ChatGPT personalization settings
+  - Flags: starred, archived status
 - Conversation title as header
 - User and assistant messages with role indicators
 - Code blocks with syntax highlighting
 - Citations and web URLs
 - File upload indicators (`[File: document.pdf]`)
+
+### JSON Format
+Structured data with:
+- Complete metadata object
+- Messages array with role, content, and timestamps
+- Citations and URLs preserved
+- Custom instructions included
+- Suitable for programmatic processing
 
 ## Implementation Details
 

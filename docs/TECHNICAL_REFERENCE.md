@@ -9,24 +9,30 @@
 
 ## API Reference
 
-### Main Module: `extract_conversations_v2.py`
+### Main Module: `chatgpt_extractor`
 
 #### Class: ConversationExtractorV2
 
 ```python
 class ConversationExtractorV2:
-    """Enhanced extractor with schema tracking and better structure"""
+    """Enhanced extractor with schema tracking and multi-format output"""
     
-    def __init__(self, input_file: str, output_dir: str)
+    def __init__(self, input_file: str, output_dir: str,
+                 markdown: bool = True,
+                 json_dir: bool = False,
+                 json_file: Optional[str] = None)
         """
         Initialize the extractor.
         
         Args:
             input_file: Path to conversations.json
             output_dir: Directory for output files
+            markdown: Generate markdown output (default: True)
+            json_dir: Generate individual JSON files (default: False)
+            json_file: Generate single JSON file with given name (default: None)
             
         Creates:
-            - Output directory if not exists
+            - Output directories (md/, json/) as needed
             - Schema tracker instance
             - Message processor instance
         """
@@ -91,18 +97,33 @@ class ConversationExtractorV2:
             4. Add _graph_index for merging validation
         """
     
-    def save_to_file(self, metadata: Dict, content: str) -> None
+    def generate_json_data(self, metadata: Dict, messages: List[Dict]) -> Dict
         """
-        Save markdown content to file.
+        Convert conversation data to exportable JSON structure.
+        
+        Args:
+            metadata: Conversation metadata
+            messages: Processed messages list
+            
+        Returns:
+            Dictionary with metadata and messages for JSON export
+        """
+    
+    def save_to_file(self, metadata: Dict, content: Union[str, Dict], 
+                     format: str = 'markdown') -> None
+        """
+        Save content to file in specified format.
         
         Args:
             metadata: Conversation metadata (for filename/location)
-            content: Markdown content
+            content: Markdown string or JSON dictionary
+            format: 'markdown' or 'json'
             
         Side Effects:
             - Creates file with sanitized name
             - Creates project folder if needed
             - Sets file timestamps from metadata
+            - Creates md/ or json/ subdirectory as needed
         """
 ```
 
@@ -403,11 +424,17 @@ These content types are always excluded:
 ### Command Line Arguments
 
 ```bash
-python extract_conversations_v2.py [input_file] [output_dir]
+python -m chatgpt_extractor [input_file] [output_dir] [options]
+
+# Options:
+--json-dir             Generate individual JSON files
+--json-file FILE       Generate single JSON file
+--no-markdown          Skip markdown generation
+--help                 Show help message
 
 # Defaults:
 input_file: data/raw/conversations.json
-output_dir: data/output_md
+output_dir: data/output
 ```
 
 ### Constants and Limits
@@ -443,7 +470,9 @@ KNOWN_PART_TYPES = {
 
 | File | Purpose | Format |
 |------|---------|--------|
-| `*.md` | Conversation content | Markdown with YAML |
+| `md/*.md` | Conversation content | Markdown with YAML |
+| `json/*.json` | Individual conversations | JSON structure |
+| `all_conversations.json` | Consolidated output | JSON array |
 | `schema_evolution.log` | Unknown patterns | Human-readable report |
 | `conversion_log.log` | Failed conversions | Detailed diagnostics |
 | `conversion_failures.json` | Machine-readable failures | JSON |
@@ -616,7 +645,7 @@ While standalone, can be integrated for automatic analysis:
 # run_with_analysis.sh
 
 # Run extraction
-python extract_conversations_v2.py
+python -m chatgpt_extractor
 
 # Check if failures occurred
 if grep -q "Failed conversations:" data/output_md/conversion_log.log; then

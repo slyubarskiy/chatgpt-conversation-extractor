@@ -18,7 +18,7 @@ def run_failure_analysis(input_file: str, output_dir: str) -> None:
         logger.info("No failures to analyze (conversion_log.log not found)")
         return
     
-    # Check if we have failures
+    # Analyze failures if any occurred to identify patterns for future improvements
     with open(log_file, 'r') as f:
         content = f.read()
         if 'Failed conversations: 0' in content or 'FAILURE CATEGORIES' not in content:
@@ -30,7 +30,7 @@ def run_failure_analysis(input_file: str, output_dir: str) -> None:
     logger.info("="*60)
     
     try:
-        # Try to import analyze_failures if available
+        # Import failure analyzer dynamically since it's an optional diagnostic tool
         from .analyze_failures import analyze_failures
         analyze_failures(input_file, sample_size=20)
         logger.info("Failure analysis complete. See failure_analysis_report.json")
@@ -48,22 +48,22 @@ def validate_cli_arguments(args: argparse.Namespace) -> None:
     """
     logger = get_logger(__name__)
     
-    # Check mutually exclusive JSON output path options
+    # Prevent conflicting JSON output specifications that would create ambiguous behavior
     if args.json_dir and args.json_file:
         logger.error("Cannot specify both --json-dir and --json-file")
         sys.exit(1)
     
-    # Validate json-format is only used with JSON output
+    # Ensure format selection aligns with output type to prevent configuration errors
     if args.json_format and args.output_format == 'markdown':
         logger.error("--json-format can only be used when --output-format includes 'json' or 'both'")
         sys.exit(1)
     
-    # Validate json-file is only used with single JSON format
+    # Single file path only makes sense for consolidated output, not individual files
     if args.json_file and args.json_format != 'single':
         logger.error("--json-file can only be used with --json-format single")
         sys.exit(1)
     
-    # Validate json-dir is only used with multiple JSON format
+    # Directory path needed for individual files, not meaningful for single file output
     if args.json_dir and args.json_format == 'single':
         logger.error("--json-dir can only be used with --json-format multiple")
         sys.exit(1)
@@ -141,10 +141,10 @@ Migration note for v3.1:
     
     args = parser.parse_args()
     
-    # Set up logging first
+    # Initialize logging before any operations for complete diagnostic coverage
     logger = configure_production_logging(debug=args.debug)
     
-    # Validate argument combinations
+    # Ensure CLI arguments are logically consistent before processing
     validate_cli_arguments(args)
     
     try:
@@ -153,13 +153,13 @@ Migration note for v3.1:
         if args.output_format in ['json', 'both']:
             logger.info(f"JSON format: {args.json_format}")
         
-        # Check input file exists
+        # Verify input accessibility early to fail fast with clear error message
         input_path = Path(args.input_file)
         if not input_path.exists():
             logger.critical(f"Input file '{args.input_file}' not found")
             sys.exit(1)
         
-        # Run extraction with enhanced configuration
+        # Execute extraction with format-aware configuration and timestamp preservation
         extractor = ConversationExtractorV2(
             input_file=args.input_file,
             output_dir=args.output_dir,
@@ -172,7 +172,7 @@ Migration note for v3.1:
         )
         extractor.extract_all()
         
-        # Run failure analysis if requested
+        # Perform diagnostic analysis on failures to aid debugging and schema evolution
         if args.analyze_failures:
             run_failure_analysis(args.input_file, args.output_dir)
             
