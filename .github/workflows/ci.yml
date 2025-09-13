@@ -86,13 +86,13 @@ jobs:
       run: |
         # Test with fixture data
         python extract.py tests/fixtures/sample_conversation.json test_output/
-        # Verify output was created
-        ls test_output/*.md || exit 1
+        # Verify output was created (now in md/ subdirectory)
+        ls test_output/md/*.md || exit 1
         # Check for expected files
-        test -f "test_output/Test Conversation.md" || exit 1
+        test -f "test_output/md/Test Conversation.md" || exit 1
         test -f "test_output/schema_evolution.log" || exit 1
         # Check project folder creation
-        test -d "test_output/g-p-test-project" || exit 1
+        test -d "test_output/md/g-p-test-project" || exit 1
     
     - name: Upload coverage reports
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
