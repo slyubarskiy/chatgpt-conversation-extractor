@@ -212,14 +212,20 @@ class ConversationExtractorV2:
                     # Save markdown if enabled
                     if self.output_format in ['markdown', 'both']:
                         content = self.generate_markdown(metadata, messages)
-                        self.save_markdown_file(metadata, content)
+                        file_path = self.save_markdown_file(metadata, content)
                         self.markdown_processed += 1
+                        # Sync timestamps for individual files
+                        if self.preserve_timestamps:
+                            self.synchronize_file_timestamps(file_path, metadata)
                     
                     # Handle JSON output
                     if self.output_format in ['json', 'both']:
                         if self.json_format == 'multiple':
                             # Save individual JSON file
-                            self.save_json_multiple(json_data, self.output_paths['json_dir'])
+                            file_path = self.save_json_multiple(json_data, self.output_paths['json_dir'])
+                            # Sync timestamps for individual files
+                            if self.preserve_timestamps:
+                                self.synchronize_file_timestamps(file_path, metadata)
                         else:
                             # Collect for single file
                             json_conversations.append(json_data)
@@ -907,8 +913,164 @@ class ConversationExtractorV2:
             log_exception(self.logger, e, f"saving JSON to {file_path}")
             raise
     
+    def parse_iso_timestamp(self, timestamp_str: str) -> Optional[float]:
+        """Convert ISO 8601 to Unix timestamp for filesystem operations.
+        
+        ChatGPT exports use 'Z' suffix consistently, but fallback handles
+        timezone-aware strings. Returns None for pre-1970 dates which
+        cause filesystem errors on some platforms. Malformed timestamps
+        logged and skipped to maintain processing flow.
+        
+        Args:
+            timestamp_str: ISO 8601 formatted timestamp string
+            
+        Returns:
+            Unix timestamp as float, or None if parsing fails
+        """
+        if not timestamp_str:
+            return None
+            
+        try:
+            # Handle ChatGPT's specific ISO format with Z suffix
+            if timestamp_str.endswith('Z'):
+                timestamp_str = timestamp_str[:-1] + '+00:00'
+            
+            # Parse to datetime
+            dt = datetime.fromisoformat(timestamp_str)
+            
+            # Convert to Unix timestamp
+            timestamp = dt.timestamp()
+            
+            # Skip pre-1970 dates (negative timestamps) 
+            # These cause errors on Windows and older Unix systems
+            if timestamp < 0:
+                self.logger.debug(f"Skipping pre-1970 timestamp: {timestamp_str}")
+                return None
+                
+            return timestamp
+            
+        except (ValueError, TypeError) as e:
+            self.logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
+            return None
+    
+    def synchronize_file_timestamps(self, file_path: Path, metadata: Dict[str, Any]) -> None:
+        """Set file creation and modification times from conversation metadata.
+        
+        Creation time setting only supported on Windows/macOS due to
+        filesystem limitations. Failures logged as warnings to maintain
+        processing flow - temporal accuracy is enhancement, not requirement.
+        Platform-specific implementations isolated for testability.
+        
+        Args:
+            file_path: Path to file needing timestamp update
+            metadata: Conversation metadata containing created/updated timestamps
+        """
+        if not self.preserve_timestamps:
+            return
+            
+        try:
+            created_ts = self.parse_iso_timestamp(metadata.get('created'))
+            updated_ts = self.parse_iso_timestamp(metadata.get('updated', metadata.get('created')))
+            
+            if not created_ts or not updated_ts:
+                return  # Skip if timestamps missing or invalid
+            
+            # Set access and modification times (works on all platforms)
+            os.utime(file_path, (updated_ts, updated_ts))
+            
+            # Platform-specific creation time setting
+            if sys.platform == 'win32':
+                self._set_windows_creation_time(file_path, created_ts)
+            elif sys.platform == 'darwin':
+                self._set_macos_creation_time(file_path, created_ts)
+            # Linux: Creation time (birth time) not reliably settable
+            # Most Linux filesystems don't support changing creation time
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to sync timestamps for {file_path}: {e}")
+            self.timestamp_sync_failures += 1
+            # Non-critical failure, continue processing
+    
+    def _set_windows_creation_time(self, file_path: Path, timestamp: float) -> None:
+        """Windows-specific creation time setting via Win32 API.
+        
+        pywin32 optional dependency - degrades gracefully if missing.
+        Handles both local and UNC paths. Requires write permissions
+        even for timestamp-only changes due to Windows security model.
+        
+        Args:
+            file_path: Path to file
+            timestamp: Unix timestamp for creation time
+        """
+        try:
+            import win32file
+            import win32con
+            import pywintypes
+            
+            # Convert Unix timestamp to Windows FILETIME
+            # Windows epoch is 1601-01-01, Unix is 1970-01-01
+            # Difference is 11644473600 seconds
+            windows_timestamp = int((timestamp + 11644473600) * 10000000)
+            filetime = pywintypes.FILETIME(windows_timestamp)
+            
+            # Open file handle
+            handle = win32file.CreateFile(
+                str(file_path),
+                win32con.GENERIC_WRITE,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE,
+                None,
+                win32con.OPEN_EXISTING,
+                win32con.FILE_ATTRIBUTE_NORMAL,
+                None
+            )
+            
+            # Set creation time (None for access/modified keeps them unchanged)
+            win32file.SetFileTime(handle, filetime, None, None)
+            win32file.CloseHandle(handle)
+            
+        except ImportError:
+            self.logger.debug("pywin32 not available - skipping Windows creation time")
+        except Exception as e:
+            self.logger.debug(f"Failed to set Windows creation time: {e}")
+    
+    def _set_macos_creation_time(self, file_path: Path, timestamp: float) -> None:
+        """macOS-specific creation time setting via xattr.
+        
+        Uses com.apple.metadata:kMDItemDateAdded extended attribute.
+        Requires xattr command-line tool (standard on macOS).
+        Some filesystem types may not support extended attributes.
+        
+        Args:
+            file_path: Path to file
+            timestamp: Unix timestamp for creation time
+        """
+        try:
+            import subprocess
+            import struct
+            
+            # Convert timestamp to macOS format (seconds since 2001-01-01)
+            # Difference between Unix epoch and macOS epoch is 978307200 seconds
+            macos_timestamp = timestamp - 978307200
+            
+            # Pack as binary data (double precision float)
+            binary_data = struct.pack('>d', macos_timestamp)
+            
+            # Set extended attribute using xattr command
+            subprocess.run(
+                ['xattr', '-w', 'com.apple.metadata:kMDItemDateAdded', 
+                 binary_data.hex(), str(file_path)],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            self.logger.debug(f"Failed to set macOS creation time: {e}")
+        except Exception as e:
+            self.logger.debug(f"Unexpected error setting macOS creation time: {e}")
+    
     def print_summary(self, progress: ProgressTracker) -> None:
-        """Print extraction summary."""
+        """Print extraction summary with format-specific statistics."""
         stats = progress.final_stats()
         
         self.logger.info("")
@@ -919,6 +1081,15 @@ class ConversationExtractorV2:
         self.logger.info(f"  Successfully processed: {stats['processed'] - stats['failed']}")
         self.logger.info(f"  Failed: {stats['failed']}")
         self.logger.info(f"  Success rate: {stats['success_rate']:.1f}%")
+        
+        # Format-specific statistics
+        if self.output_format in ['markdown', 'both']:
+            self.logger.info(f"  Markdown files created: {self.markdown_processed}")
+        if self.output_format in ['json', 'both']:
+            self.logger.info(f"  JSON files created: {self.json_processed}")
+        if self.preserve_timestamps and self.timestamp_sync_failures > 0:
+            self.logger.info(f"  Timestamp sync failures: {self.timestamp_sync_failures}")
+        
         self.logger.info(f"  Time elapsed: {stats['elapsed_time']:.1f}s")
         self.logger.info(f"  Processing rate: {stats['rate']:.1f} conv/s")
         self.logger.info(f"  Output directory: {self.output_dir}")
