@@ -17,74 +17,74 @@ This document tracks the implementation of multi-format output support with subd
 - [ ] Configure separate log directories
 - [ ] Test simultaneous processing capability
 
-### Phase 1: CLI Argument Enhancement
-- [ ] Modify `src/chatgpt_extractor/__main__.py`
-  - [ ] Add `--output-format {markdown,json,both}` (default: 'markdown')
-  - [ ] Add `--json-format {single,multiple}` (default: 'multiple')
-  - [ ] Add `--markdown-dir` override option
-  - [ ] Add `--json-dir` override option
-  - [ ] Add `--json-file` for single JSON path
-  - [ ] Add `--preserve-timestamps` boolean (default: True)
-  - [ ] Update help text with comprehensive examples
-  - [ ] Change default output_dir from 'data/output_md' to 'data/output'
-- [ ] Implement validation logic
-  - [ ] Mutual exclusion: `--json-dir` vs `--json-file`
-  - [ ] Conditional: `--json-format` only with JSON output
-  - [ ] Path validation for writable directories
-  - [ ] Backward compatibility checks
+### Phase 1: CLI Argument Enhancement ✅
+- [x] Modify `src/chatgpt_extractor/__main__.py`
+  - [x] Add `--output-format {markdown,json,both}` (default: 'markdown')
+  - [x] Add `--json-format {single,multiple}` (default: 'multiple')
+  - [x] Add `--markdown-dir` override option
+  - [x] Add `--json-dir` override option
+  - [x] Add `--json-file` for single JSON path
+  - [x] Add `--preserve-timestamps` boolean (default: True)
+  - [x] Update help text with comprehensive examples
+  - [x] Change default output_dir from 'data/output_md' to 'data/output'
+- [x] Implement validation logic
+  - [x] Mutual exclusion: `--json-dir` vs `--json-file`
+  - [x] Conditional: `--json-format` only with JSON output
+  - [x] Path validation for writable directories
+  - [x] Backward compatibility checks
 
-### Phase 2: Core Architecture Updates
-- [ ] Update `ConversationExtractorV2.__init__`
-  - [ ] Store output format configuration
-  - [ ] Initialize path configuration
-  - [ ] Add constants: `JSON_EXPORT_FILENAME_PATTERN`, `TIMESTAMP_FORMAT_ISO8601`
-- [ ] Add new core methods
-  - [ ] `determine_output_paths()` with quality comments
-  - [ ] `generate_json_data()` with quality comments
-  - [ ] `save_json_single()` with quality comments
-  - [ ] `save_json_multiple()` with quality comments
-  - [ ] `synchronize_file_timestamps()` with quality comments
-  - [ ] `parse_iso_timestamp()` with quality comments
-  - [ ] `_set_windows_creation_time()` with platform docs
-  - [ ] `_set_macos_creation_time()` with platform docs
-- [ ] Modify existing methods
-  - [ ] Update `process_conversation()` return signature
-  - [ ] Enhance `extract_all()` for dual-format processing
-  - [ ] Rename `save_to_file()` to `save_markdown_file()`
+### Phase 2: Core Architecture Updates ✅
+- [x] Update `ConversationExtractorV2.__init__`
+  - [x] Store output format configuration
+  - [x] Initialize path configuration
+  - [x] Add constants: `JSON_EXPORT_FILENAME_PATTERN`, `TIMESTAMP_FORMAT_ISO8601`
+- [x] Add new core methods
+  - [x] `determine_output_paths()` with quality comments
+  - [x] `generate_json_data()` with quality comments
+  - [x] `save_json_single()` with quality comments
+  - [x] `save_json_multiple()` with quality comments
+  - [x] `synchronize_file_timestamps()` with quality comments
+  - [x] `parse_iso_timestamp()` with quality comments
+  - [x] `_set_windows_creation_time()` with platform docs
+  - [x] `_set_macos_creation_time()` with platform docs
+- [x] Modify existing methods
+  - [x] Update `process_conversation()` return signature
+  - [x] Enhance `extract_all()` for dual-format processing
+  - [x] Rename `save_to_file()` to `save_markdown_file()`
 
-### Phase 3: Directory Structure Implementation
-- [ ] Path management
-  - [ ] Create `md/` subdirectory logic
-  - [ ] Create `json/` subdirectory logic
-  - [ ] Preserve project subfolder structure
-  - [ ] Handle file collision with numbered suffixes
-- [ ] Error handling
-  - [ ] Early directory creation with permission checks
-  - [ ] Clear error messages for permission failures
-  - [ ] Validate paths before processing starts
+### Phase 3: Directory Structure Implementation ✅
+- [x] Path management
+  - [x] Create `md/` subdirectory logic
+  - [x] Create `json/` subdirectory logic
+  - [x] Preserve project subfolder structure
+  - [x] Handle file collision with numbered suffixes
+- [x] Error handling
+  - [x] Early directory creation with permission checks
+  - [x] Clear error messages for permission failures
+  - [x] Validate paths before processing starts
 
-### Phase 4: JSON Output Implementation
-- [ ] JSON structure
-  - [ ] Single file with `export_metadata` wrapper
-  - [ ] Multiple files with individual conversation objects
-  - [ ] Handle all metadata types
-  - [ ] ISO 8601 timestamp formatting
-- [ ] Processing logic
-  - [ ] Incremental JSON building for memory efficiency
-  - [ ] Proper serialization of complex types
-  - [ ] Track JSON-specific failures separately
+### Phase 4: JSON Output Implementation ✅
+- [x] JSON structure
+  - [x] Single file with `export_metadata` wrapper
+  - [x] Multiple files with individual conversation objects
+  - [x] Handle all metadata types
+  - [x] ISO 8601 timestamp formatting
+- [x] Processing logic
+  - [x] Incremental JSON building for memory efficiency
+  - [x] Proper serialization of complex types
+  - [x] Track JSON-specific failures separately
 
-### Phase 5: Timestamp Synchronization
-- [ ] Core implementation
-  - [ ] Parse ISO 8601 with fallback handling
-  - [ ] Set creation/modification times per platform
-  - [ ] Windows implementation with Win32 API
-  - [ ] macOS implementation with xattr
-  - [ ] Linux limitation documentation
-- [ ] Error resilience
-  - [ ] Log failures as warnings (non-blocking)
-  - [ ] Handle pre-1970 dates gracefully
-  - [ ] Cache parsed timestamps for efficiency
+### Phase 5: Timestamp Synchronization ✅
+- [x] Core implementation
+  - [x] Parse ISO 8601 with fallback handling
+  - [x] Set creation/modification times per platform
+  - [x] Windows implementation with Win32 API
+  - [x] macOS implementation with xattr
+  - [x] Linux limitation documentation
+- [x] Error resilience
+  - [x] Log failures as warnings (non-blocking)
+  - [x] Handle pre-1970 dates gracefully
+  - [x] Cache parsed timestamps for efficiency
 
 ### Phase 6: Progress Reporting Enhancement
 - [ ] Update `ProgressTracker` class
@@ -295,6 +295,12 @@ This document tracks the implementation of multi-format output support with subd
 - ✅ Set up feature branch `feature/json-output-format`
 - ✅ Created independent virtual environment `.venv_json`
 - ✅ Created this implementation plan document
+- ✅ Implemented Phase 1: CLI argument parsing with validation
+- ✅ Implemented Phase 2: Core architecture updates with new methods
+- ✅ Implemented Phase 3: Directory structure with subdirectory support
+- ✅ Implemented Phase 4: JSON output functionality (single and multiple)
+- ✅ Implemented Phase 5: Timestamp synchronization with platform support
+- ✅ Created and ran basic test script - all tests passing
 
 ## Notes
 
