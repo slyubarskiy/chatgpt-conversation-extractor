@@ -107,11 +107,22 @@ class ConversationExtractorV2:
         
         messages = self.backward_traverse(mapping, current_node, conv_id)
         
+        # Collect statistics from raw messages
+        stats = self.collect_message_statistics(messages, conv_id)
+        
         processed = self.process_messages(messages, conv_id, conv)
         
         merged = self.merge_continuations(processed)
         
         if merged:
+            # Add statistics to metadata
+            metadata['total_messages'] = len(merged)
+            metadata['code_messages'] = stats['code_count']
+            if stats['content_types']:
+                metadata['message_types'] = ', '.join(sorted(stats['content_types']))
+            if stats['custom_instructions']:
+                metadata['custom_instructions'] = stats['custom_instructions']
+            
             content = self.generate_markdown(metadata, merged)
             
             self.save_to_file(metadata, content)
@@ -151,6 +162,70 @@ class ConversationExtractorV2:
                 metadata['project_id'] = project_id
         
         return metadata
+    
+    def collect_message_statistics(self, messages: List[Dict[str, Any]], conv_id: str) -> Dict[str, Any]:
+        """Collect statistics from raw messages.
+        
+        Args:
+            messages: Raw messages from backward traversal
+            conv_id: Conversation ID for tracking
+            
+        Returns:
+            Dictionary with message statistics
+        """
+        stats = {
+            'code_count': 0,
+            'content_types': set(),
+            'custom_instructions': None
+        }
+        
+        for msg in messages:
+            # Track content types
+            content = msg.get('content', {})
+            content_type = content.get('content_type', '')
+            if content_type:
+                stats['content_types'].add(content_type)
+            
+            # Count code messages
+            if content_type == 'code':
+                stats['code_count'] += 1
+            elif content_type == 'execution_output':
+                stats['code_count'] += 1
+            elif content_type == 'multimodal_text':
+                # Check for code interpreter output in parts
+                for part in content.get('parts', []):
+                    if isinstance(part, dict) and part.get('content_type') == 'code_interpreter_output':
+                        stats['code_count'] += 1
+                        break
+            
+            # Extract custom instructions
+            if content_type == 'user_editable_context' and not stats['custom_instructions']:
+                # This is the custom instructions message
+                text = content.get('text', '')
+                if text:
+                    # Parse the custom instructions format
+                    about_user = None
+                    about_model = None
+                    
+                    # Look for the two sections
+                    if 'The user provided the following information about themselves:' in text:
+                        parts = text.split('The user provided the additional info about how they would like you to respond:')
+                        if len(parts) == 2:
+                            about_user = parts[0].replace('The user provided the following information about themselves:', '').strip()
+                            about_model = parts[1].strip()
+                        else:
+                            # Try alternative format
+                            about_user = text.replace('The user provided the following information about themselves:', '').strip()
+                    
+                    if about_user or about_model:
+                        instructions = {}
+                        if about_user:
+                            instructions['about_user_message'] = about_user
+                        if about_model:
+                            instructions['about_model_message'] = about_model
+                        stats['custom_instructions'] = instructions
+        
+        return stats
     
     def backward_traverse(self, mapping: Dict[str, Any], current_node: Optional[str], 
                          conv_id: str) -> List[Dict[str, Any]]:
@@ -360,7 +435,14 @@ class ConversationExtractorV2:
         
         lines.append('---')
         for key, value in metadata.items():
-            if isinstance(value, str) and (':' in value or '"' in value):
+            if key == 'custom_instructions' and isinstance(value, dict):
+                # Format custom instructions as a YAML block string
+                lines.append('custom_instructions: |')
+                for inst_key, inst_value in value.items():
+                    # Escape the value properly for YAML
+                    escaped_value = inst_value.replace('\\', '\\\\').replace('"', '\\"')
+                    lines.append(f'  {inst_key}: "{escaped_value}"')
+            elif isinstance(value, str) and (':' in value or '"' in value):
                 lines.append(f'{key}: "{value}"')
             else:
                 lines.append(f'{key}: {value}')
