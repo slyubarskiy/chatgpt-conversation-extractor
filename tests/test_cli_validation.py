@@ -3,6 +3,7 @@ Test suite for CLI argument validation.
 Focuses on the new validation logic for JSON output options.
 """
 
+import json
 import sys
 import argparse
 from pathlib import Path

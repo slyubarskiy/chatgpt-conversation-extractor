@@ -181,14 +181,24 @@ class TestJSONOutput:
             "is_starred": True,
             "is_archived": False,
             "mapping": {
-                "n1": {"id": "n1", "parent": None, "children": ["n2"]},
+                "n1": {"id": "n1", "parent": None, "children": ["n2", "n3"]},
                 "n2": {"id": "n2", "parent": "n1", "children": [], "message": {
                     "author": {"role": "system"},
-                    "content": {"content_type": "user_editable_context", "text": "Custom instructions"},
-                    "metadata": {"is_user_system_message": True}
+                    "content": {"content_type": "user_editable_context"},
+                    "metadata": {
+                        "is_user_system_message": True,
+                        "user_context_message_data": {
+                            "about_user_message": "User is a developer",
+                            "about_model_message": "Be helpful and concise"
+                        }
+                    }
+                }},
+                "n3": {"id": "n3", "parent": "n1", "children": [], "message": {
+                    "author": {"role": "user"},
+                    "content": {"content_type": "text", "parts": ["Test message"]}
                 }}
             },
-            "current_node": "n2"
+            "current_node": "n3"
         }]
         
         input_file = tmp_path / "test.json"
@@ -210,7 +220,10 @@ class TestJSONOutput:
         assert data['starred'] == True
         assert data['archived'] == False
         assert data['model'] == 'gpt-4'
+        # Custom instructions should be extracted from user_context_message_data
         assert 'custom_instructions' in data
+        assert data['custom_instructions']['about_user_message'] == "User is a developer"
+        assert data['custom_instructions']['about_model_message'] == "Be helpful and concise"
 
 
 class TestDirectoryStructure:
