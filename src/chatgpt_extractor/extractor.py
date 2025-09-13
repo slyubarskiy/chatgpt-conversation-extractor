@@ -5,10 +5,12 @@ Main extractor class for ChatGPT conversation processing.
 import json
 import os
 import re
+import sys
+import time
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from collections import defaultdict
 
 import yaml
@@ -17,34 +19,150 @@ from .processors import MessageProcessor
 from .trackers import SchemaEvolutionTracker, ProgressTracker
 from .logging_config import get_logger, log_exception
 
+# Constants for JSON output formatting
+JSON_EXPORT_FILENAME_PATTERN = "conversations_export_{timestamp}.json"
+TIMESTAMP_FORMAT_ISO8601 = "%Y-%m-%dT%H:%M:%S.%fZ"
+
 
 class ConversationExtractorV2:
-    """Enhanced ChatGPT conversation extractor with schema tracking."""
+    """Enhanced ChatGPT conversation extractor with multi-format output support.
     
-    def __init__(self, input_file: str, output_dir: str):
-        """Initialize the extractor.
+    Supports markdown and JSON output formats with configurable directory
+    structure and timestamp synchronization. Single JSON consolidates all
+    conversations for bulk analysis; multiple JSON preserves individual
+    conversation context for targeted processing.
+    """
+    
+    def __init__(self, 
+                 input_file: str, 
+                 output_dir: str,
+                 output_format: str = 'markdown',
+                 json_format: str = 'multiple',
+                 markdown_dir: Optional[str] = None,
+                 json_dir: Optional[str] = None,
+                 json_file: Optional[str] = None,
+                 preserve_timestamps: bool = True):
+        """Initialize the extractor with multi-format configuration.
         
         Args:
             input_file: Path to conversations.json
-            output_dir: Directory for output markdown files
+            output_dir: Base directory for output files
+            output_format: 'markdown', 'json', or 'both'
+            json_format: 'single' or 'multiple' for JSON output
+            markdown_dir: Override path for markdown output (bypasses md/ subdirectory)
+            json_dir: Override path for multiple JSON output (bypasses json/ subdirectory)
+            json_file: Override path for single JSON output file
+            preserve_timestamps: Sync file timestamps with conversation metadata
+                                 (individual files only; single JSON uses processing time)
         """
         self.logger = get_logger(__name__)
         self.input_file = Path(input_file)
         self.output_dir = Path(output_dir)
         
-        try:
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            self.logger.critical(f"Permission denied creating output directory {self.output_dir}")
-            raise
-        except Exception as e:
-            log_exception(self.logger, e, f"creating output directory {self.output_dir}")
-            raise
+        # Store format configuration
+        self.output_format = output_format
+        self.json_format = json_format
+        self.preserve_timestamps = preserve_timestamps
+        
+        # Determine output paths based on configuration
+        self.output_paths = self.determine_output_paths(
+            markdown_dir, json_dir, json_file
+        )
+        
+        # Create necessary directories early for permission validation
+        self._create_output_directories()
         
         self.schema_tracker = SchemaEvolutionTracker()
         self.message_processor = MessageProcessor(self.schema_tracker)
         
         self.conversion_failures: List[Dict[str, Any]] = []
+        
+        # Track format-specific processing for enhanced reporting
+        self.markdown_processed = 0
+        self.json_processed = 0
+        self.timestamp_sync_failures = 0
+    
+    def determine_output_paths(self, 
+                               markdown_dir: Optional[str] = None,
+                               json_dir: Optional[str] = None,
+                               json_file: Optional[str] = None) -> Dict[str, Path]:
+        """Resolve output paths based on format configuration and override arguments.
+        
+        Default structure creates md/ and json/ subdirectories unless overridden.
+        Override paths bypass subdirectory creation to support legacy workflows
+        and custom organizational needs. Single JSON path includes timestamp
+        unless explicitly specified via json_file override.
+        
+        Args:
+            markdown_dir: Override path for markdown output
+            json_dir: Override path for JSON multiple output
+            json_file: Override path for single JSON file
+            
+        Returns:
+            Dictionary with resolved paths for each output format
+        """
+        paths = {}
+        
+        # Markdown output path resolution
+        if self.output_format in ['markdown', 'both']:
+            if markdown_dir:
+                # Override bypasses subdirectory structure
+                paths['markdown_dir'] = Path(markdown_dir)
+            else:
+                # Default: create md/ subdirectory
+                paths['markdown_dir'] = self.output_dir / 'md'
+        
+        # JSON output path resolution
+        if self.output_format in ['json', 'both']:
+            if self.json_format == 'multiple':
+                if json_dir:
+                    # Override bypasses subdirectory structure
+                    paths['json_dir'] = Path(json_dir)
+                else:
+                    # Default: create json/ subdirectory
+                    paths['json_dir'] = self.output_dir / 'json'
+            else:  # single JSON format
+                if json_file:
+                    # Explicit file path override
+                    paths['json_file'] = Path(json_file)
+                else:
+                    # Default: timestamped file in output root
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = JSON_EXPORT_FILENAME_PATTERN.format(timestamp=timestamp)
+                    paths['json_file'] = self.output_dir / filename
+        
+        return paths
+    
+    def _create_output_directories(self) -> None:
+        """Create necessary output directories with early permission validation.
+        
+        Directory creation failures halt processing immediately since write
+        permissions are required for all subsequent operations. Project
+        subdirectories created on-demand during processing to avoid empty folders.
+        """
+        try:
+            # Always create base output directory
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create format-specific directories
+            if 'markdown_dir' in self.output_paths:
+                self.output_paths['markdown_dir'].mkdir(parents=True, exist_ok=True)
+                self.logger.debug(f"Created markdown directory: {self.output_paths['markdown_dir']}")
+            
+            if 'json_dir' in self.output_paths:
+                self.output_paths['json_dir'].mkdir(parents=True, exist_ok=True)
+                self.logger.debug(f"Created JSON directory: {self.output_paths['json_dir']}")
+                
+            # For single JSON, ensure parent directory exists
+            if 'json_file' in self.output_paths:
+                self.output_paths['json_file'].parent.mkdir(parents=True, exist_ok=True)
+                
+        except PermissionError as e:
+            self.logger.critical(f"Permission denied creating output directory: {e}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, "creating output directories")
+            raise
     
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
@@ -71,18 +189,55 @@ class ConversationExtractorV2:
         
         self.logger.info(f"Found {len(conversations)} conversations to process")
         self.logger.info(f"Output directory: {self.output_dir}")
+        if self.output_format in ['markdown', 'both']:
+            self.logger.info(f"Markdown output: {self.output_paths.get('markdown_dir', 'N/A')}")
+        if self.output_format in ['json', 'both']:
+            if self.json_format == 'multiple':
+                self.logger.info(f"JSON output: {self.output_paths.get('json_dir', 'N/A')}")
+            else:
+                self.logger.info(f"JSON output: {self.output_paths.get('json_file', 'N/A')}")
         
         progress = ProgressTracker(total=len(conversations))
         
+        # Collect conversations for single JSON if needed
+        json_conversations = [] if (self.output_format in ['json', 'both'] and 
+                                   self.json_format == 'single') else None
+        
         for conv in conversations:
             try:
-                self.process_conversation(conv)
+                result = self.process_conversation(conv)
+                if result:
+                    metadata, messages, json_data = result
+                    
+                    # Save markdown if enabled
+                    if self.output_format in ['markdown', 'both']:
+                        content = self.generate_markdown(metadata, messages)
+                        self.save_markdown_file(metadata, content)
+                        self.markdown_processed += 1
+                    
+                    # Handle JSON output
+                    if self.output_format in ['json', 'both']:
+                        if self.json_format == 'multiple':
+                            # Save individual JSON file
+                            self.save_json_multiple(json_data, self.output_paths['json_dir'])
+                        else:
+                            # Collect for single file
+                            json_conversations.append(json_data)
+                    
                 progress.update(success=True)
             except Exception as e:
                 conv_id = conv.get('id', conv.get('conversation_id', 'unknown'))
                 title = conv.get('title', 'Untitled')[:50]
                 self.log_conversion_failure(conv, conv_id, title, e)
                 progress.update(success=False)
+        
+        # Save single JSON file if needed
+        if json_conversations is not None and json_conversations:
+            try:
+                self.save_json_single(json_conversations, self.output_paths['json_file'])
+                self.json_processed = len(json_conversations)
+            except Exception as e:
+                self.logger.error(f"Failed to save consolidated JSON: {e}")
         
         if not self.logger.handlers:
             print()  # Only print if no logging handlers
@@ -93,11 +248,23 @@ class ConversationExtractorV2:
         
         self.print_summary(progress)
     
-    def process_conversation(self, conv: Dict[str, Any]) -> None:
-        """Process single conversation to markdown."""
+    def process_conversation(self, conv: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]]:
+        """Process single conversation for all configured output formats.
+        
+        Returns tuple of (metadata, messages, json_data) for format-specific
+        processing. None return indicates empty/invalid conversation that
+        should be skipped. JSON data pre-generated for consistency between
+        single and multiple output modes.
+        
+        Args:
+            conv: Raw conversation dictionary from export
+            
+        Returns:
+            Tuple of (metadata, messages, json_data) or None if empty
+        """
         if not conv:
             self.logger.warning("Skipping None or empty conversation")
-            return
+            return None
             
         metadata = self.extract_metadata(conv)
         conv_id = metadata['id']
@@ -123,9 +290,14 @@ class ConversationExtractorV2:
             if stats['custom_instructions']:
                 metadata['custom_instructions'] = stats['custom_instructions']
             
-            content = self.generate_markdown(metadata, merged)
+            # Generate JSON data if needed
+            json_data = None
+            if self.output_format in ['json', 'both']:
+                json_data = self.generate_json_data(metadata, merged)
             
-            self.save_to_file(metadata, content)
+            return metadata, merged, json_data
+        
+        return None
     
     def extract_metadata(self, conv: Dict[str, Any]) -> Dict[str, Any]:
         """Extract conversation metadata for YAML frontmatter.
@@ -509,13 +681,28 @@ class ConversationExtractorV2:
         
         return '\n'.join(lines)
     
-    def save_to_file(self, metadata: Dict[str, Any], content: str) -> None:
-        """Save markdown content to file with proper directory structure."""
+    def save_markdown_file(self, metadata: Dict[str, Any], content: str) -> Path:
+        """Save markdown content to file with proper directory structure.
+        
+        Project conversations maintain subfolder organization. Collision
+        handling uses numbered suffixes to preserve all conversations.
+        Returns path for optional timestamp synchronization.
+        
+        Args:
+            metadata: Conversation metadata including title and project_id
+            content: Generated markdown content
+            
+        Returns:
+            Path to the created markdown file
+        """
         title = metadata['title']
         safe_title = self.sanitize_filename(title)
         
+        # Use markdown_dir from output_paths
+        output_dir = self.output_paths.get('markdown_dir', self.output_dir)
+        
         if project_id := metadata.get('project_id'):
-            project_dir = self.output_dir / project_id
+            project_dir = output_dir / project_id
             try:
                 project_dir.mkdir(exist_ok=True)
             except PermissionError:
@@ -526,7 +713,7 @@ class ConversationExtractorV2:
                 raise
             file_path = project_dir / f"{safe_title}.md"
         else:
-            file_path = self.output_dir / f"{safe_title}.md"
+            file_path = output_dir / f"{safe_title}.md"
         
         # Handle filename collisions with numeric suffix
         if file_path.exists():
@@ -535,7 +722,7 @@ class ConversationExtractorV2:
                 if metadata.get('project_id'):
                     new_path = file_path.parent / f"{safe_title} ({counter}).md"
                 else:
-                    new_path = self.output_dir / f"{safe_title} ({counter}).md"
+                    new_path = output_dir / f"{safe_title} ({counter}).md"
                 
                 if not new_path.exists():
                     file_path = new_path
@@ -546,6 +733,7 @@ class ConversationExtractorV2:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             self.logger.debug(f"Successfully wrote {file_path}")
+            return file_path
         except PermissionError:
             self.logger.error(f"Permission denied writing to {file_path}")
             raise
@@ -574,6 +762,150 @@ class ConversationExtractorV2:
             safe_title = 'untitled'
         
         return safe_title
+    
+    def generate_json_data(self, metadata: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Convert conversation data to exportable JSON structure.
+        
+        Strips internal tracking fields (_graph_index) and normalizes
+        custom_instructions from legacy string format to structured dict.
+        Single-conversation format used for both individual files and
+        consolidated export array elements. Message timestamps preserved
+        from original data when available, null otherwise.
+        
+        Args:
+            metadata: Conversation metadata including id, title, timestamps
+            messages: Processed and filtered message list
+            
+        Returns:
+            Dictionary ready for JSON serialization
+        """
+        json_data = {
+            'id': metadata.get('id'),
+            'title': metadata.get('title'),
+            'created': metadata.get('created'),
+            'updated': metadata.get('updated'),
+            'model': metadata.get('model'),
+            'project_id': metadata.get('project_id'),
+            'total_messages': metadata.get('total_messages', len(messages)),
+            'code_messages': metadata.get('code_messages', 0),
+            'message_types': metadata.get('message_types', '').split(', ') if metadata.get('message_types') else [],
+            'starred': metadata.get('starred', False),
+            'archived': metadata.get('archived', False),
+            'chat_url': metadata.get('chat_url'),
+            'messages': []
+        }
+        
+        # Handle custom instructions - already in dict format from metadata
+        if custom_instructions := metadata.get('custom_instructions'):
+            json_data['custom_instructions'] = custom_instructions
+        
+        # Process messages for JSON format
+        for msg in messages:
+            json_msg = {
+                'role': msg.get('role'),
+                'content': msg.get('content', ''),
+                'timestamp': msg.get('timestamp')  # May be None for older conversations
+            }
+            
+            # Add optional fields if present
+            if citations := msg.get('citations'):
+                json_msg['citations'] = citations
+            if web_urls := msg.get('web_urls'):
+                json_msg['web_urls'] = web_urls
+            if files := msg.get('files'):
+                json_msg['files'] = files
+                
+            json_data['messages'].append(json_msg)
+        
+        return json_data
+    
+    def save_json_single(self, conversations: List[Dict[str, Any]], output_path: Path) -> Path:
+        """Save all conversations to a single consolidated JSON file.
+        
+        Single JSON uses processing timestamps (not conversation timestamps)
+        because consolidation happens after individual processing completes.
+        Export metadata provides processing context and statistics for
+        downstream analysis tools.
+        
+        Args:
+            conversations: List of conversation dictionaries
+            output_path: Path for the consolidated JSON file
+            
+        Returns:
+            Path to the created JSON file
+        """
+        export_data = {
+            'export_metadata': {
+                'timestamp': datetime.now().strftime(TIMESTAMP_FORMAT_ISO8601),
+                'total_conversations': len(conversations),
+                'successful_conversations': len([c for c in conversations if c]),
+                'failed_conversations': len(self.conversion_failures),
+                'extractor_version': '3.1',
+                'export_format': 'single',
+                'source_file': str(self.input_file),
+                'timestamp_sync_enabled': self.preserve_timestamps
+            },
+            'conversations': conversations
+        }
+        
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"Saved consolidated JSON to {output_path}")
+            return output_path
+        except PermissionError:
+            self.logger.error(f"Permission denied writing to {output_path}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, f"saving JSON to {output_path}")
+            raise
+    
+    def save_json_multiple(self, json_data: Dict[str, Any], output_dir: Path) -> Path:
+        """Save individual conversation to its own JSON file.
+        
+        File naming follows markdown convention for consistency across formats.
+        Project conversations maintain subfolder structure. Collision handling
+        uses numbered suffixes matching markdown behavior.
+        
+        Args:
+            json_data: Single conversation dictionary
+            output_dir: Base directory for JSON files
+            
+        Returns:
+            Path to the created JSON file
+        """
+        title = json_data.get('title', 'untitled')
+        safe_title = self.sanitize_filename(title)
+        
+        # Handle project subfolder structure
+        if project_id := json_data.get('project_id'):
+            if project_id.startswith('g-p-'):
+                project_dir = output_dir / project_id
+                project_dir.mkdir(exist_ok=True)
+                output_dir = project_dir
+        
+        # Handle file collisions with numbered suffixes
+        file_path = output_dir / f"{safe_title}.json"
+        if file_path.exists():
+            counter = 2
+            while True:
+                file_path = output_dir / f"{safe_title} ({counter}).json"
+                if not file_path.exists():
+                    break
+                counter += 1
+        
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+            self.logger.debug(f"Saved JSON to {file_path}")
+            self.json_processed += 1
+            return file_path
+        except PermissionError:
+            self.logger.error(f"Permission denied writing to {file_path}")
+            raise
+        except Exception as e:
+            log_exception(self.logger, e, f"saving JSON to {file_path}")
+            raise
     
     def print_summary(self, progress: ProgressTracker) -> None:
         """Print extraction summary."""
