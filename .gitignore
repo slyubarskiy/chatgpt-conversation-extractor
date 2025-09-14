@@ -164,3 +164,6 @@ failure_analysis_report.json
 docs/[0-9]*.md
 session_*.md
 ci_fixes.patch
+# Temporary local scripts and backups
+.temp_local_scripts_and_backups/
+tools/
