@@ -10,6 +10,7 @@ from datetime import datetime
 
 try:
     from tqdm import tqdm
+
     TQDM_AVAILABLE = True
 except ImportError:
     TQDM_AVAILABLE = False
@@ -18,74 +19,90 @@ except ImportError:
 @dataclass
 class SchemaEvolutionTracker:
     """Track unknown patterns and schema changes."""
+
     content_types: Set[str] = field(default_factory=set)
     author_roles: Set[str] = field(default_factory=set)
     recipient_values: Set[str] = field(default_factory=set)
     metadata_keys: Set[str] = field(default_factory=set)
     part_types: Set[str] = field(default_factory=set)
     finish_types: Set[str] = field(default_factory=set)
-    unknown_samples: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
-    
+    unknown_samples: Dict[str, List[str]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+
     KNOWN_CONTENT_TYPES = {
-        'text', 'code', 'multimodal_text', 'execution_output', 
-        'tether_quote', 'tether_browsing_display', 'user_editable_context',
-        'model_editable_context', 'thoughts', 'reasoning_recap', 'sonic_webpage',
-        'system_error'
+        "text",
+        "code",
+        "multimodal_text",
+        "execution_output",
+        "tether_quote",
+        "tether_browsing_display",
+        "user_editable_context",
+        "model_editable_context",
+        "thoughts",
+        "reasoning_recap",
+        "sonic_webpage",
+        "system_error",
     }
-    
-    KNOWN_ROLES = {'system', 'user', 'assistant', 'tool'}
-    
+
+    KNOWN_ROLES = {"system", "user", "assistant", "tool"}
+
     KNOWN_PART_TYPES = {
-        'image_asset_pointer', 'audio_transcription', 'audio_asset_pointer',
-        'video_asset_pointer', 'code_interpreter_output'
+        "image_asset_pointer",
+        "audio_transcription",
+        "audio_asset_pointer",
+        "video_asset_pointer",
+        "code_interpreter_output",
     }
-    
+
     def track_content_type(self, content_type: str, conv_id: str) -> None:
         """Track content types, capturing first 10 unknown patterns."""
         self.content_types.add(content_type)
         if content_type and content_type not in self.KNOWN_CONTENT_TYPES:
-            if len(self.unknown_samples['content_types']) < 10:
-                self.unknown_samples['content_types'].append(f"{conv_id}: {content_type}")
-    
+            if len(self.unknown_samples["content_types"]) < 10:
+                self.unknown_samples["content_types"].append(
+                    f"{conv_id}: {content_type}"
+                )
+
     def track_author_role(self, role: str, conv_id: str) -> None:
         """Track message author roles with unknown sample collection."""
         self.author_roles.add(role)
         if role and role not in self.KNOWN_ROLES:
-            if len(self.unknown_samples['author_roles']) < 10:
-                self.unknown_samples['author_roles'].append(f"{conv_id}: {role}")
-    
+            if len(self.unknown_samples["author_roles"]) < 10:
+                self.unknown_samples["author_roles"].append(f"{conv_id}: {role}")
+
     def track_recipient(self, recipient: str, conv_id: str) -> None:
         """Track tool recipient identifiers for schema discovery."""
         if recipient:
             self.recipient_values.add(recipient)
-    
+
     def track_metadata_keys(self, metadata: Dict[str, Any], conv_id: str) -> None:
         """Discover metadata schema from field presence patterns."""
         if metadata:
             for key in metadata.keys():
                 self.metadata_keys.add(key)
-    
+
     def track_part_type(self, part_type: str, conv_id: str) -> None:
         """Track multimodal part types (images, audio, video)."""
         self.part_types.add(part_type)
         if part_type and part_type not in self.KNOWN_PART_TYPES:
-            if len(self.unknown_samples['part_types']) < 10:
-                self.unknown_samples['part_types'].append(f"{conv_id}: {part_type}")
-    
+            if len(self.unknown_samples["part_types"]) < 10:
+                self.unknown_samples["part_types"].append(f"{conv_id}: {part_type}")
+
     def track_finish_type(self, finish_type: str, conv_id: str) -> None:
         """Track conversation termination reasons (stop, error, etc.)."""
         if finish_type:
             self.finish_types.add(finish_type)
-    
+
     def generate_report(self) -> str:
         """Generate evolution tracking report."""
         report = []
-        report.append("="*60)
+        report.append("=" * 60)
         report.append("SCHEMA EVOLUTION TRACKING REPORT")
         report.append(f"Generated: {datetime.now().isoformat()}")
-        report.append("="*60)
+        report.append("=" * 60)
         report.append("")
-        
+
         report.append("## Content Types")
         known = self.content_types & self.KNOWN_CONTENT_TYPES
         unknown = self.content_types - self.KNOWN_CONTENT_TYPES
@@ -95,12 +112,12 @@ class SchemaEvolutionTracker:
             report.append("  Unknown types:")
             for ct in sorted(unknown):
                 report.append(f"    - {ct}")
-            if self.unknown_samples['content_types']:
+            if self.unknown_samples["content_types"]:
                 report.append("  Sample conversations:")
-                for sample in self.unknown_samples['content_types'][:3]:
+                for sample in self.unknown_samples["content_types"][:3]:
                     report.append(f"    {sample}")
         report.append("")
-        
+
         report.append("## Author Roles")
         known = self.author_roles & self.KNOWN_ROLES
         unknown = self.author_roles - self.KNOWN_ROLES
@@ -110,12 +127,12 @@ class SchemaEvolutionTracker:
             report.append("  Unknown roles:")
             for role in sorted(unknown):
                 report.append(f"    - {role}")
-            if self.unknown_samples['author_roles']:
+            if self.unknown_samples["author_roles"]:
                 report.append("  Sample conversations:")
-                for sample in self.unknown_samples['author_roles'][:3]:
+                for sample in self.unknown_samples["author_roles"][:3]:
                     report.append(f"    {sample}")
         report.append("")
-        
+
         report.append("## Part Types in Multimodal Content")
         known = self.part_types & self.KNOWN_PART_TYPES
         unknown = self.part_types - self.KNOWN_PART_TYPES
@@ -125,62 +142,65 @@ class SchemaEvolutionTracker:
             report.append("  Unknown part types:")
             for pt in sorted(unknown):
                 report.append(f"    - {pt}")
-            if self.unknown_samples['part_types']:
+            if self.unknown_samples["part_types"]:
                 report.append("  Sample conversations:")
-                for sample in self.unknown_samples['part_types'][:3]:
+                for sample in self.unknown_samples["part_types"][:3]:
                     report.append(f"    {sample}")
         report.append("")
-        
+
         if self.recipient_values:
             report.append("## Recipients (Tools)")
             report.append(f"  Unique recipients found: {len(self.recipient_values)}")
             for recipient in sorted(self.recipient_values)[:10]:
                 report.append(f"    - {recipient}")
             report.append("")
-        
+
         if self.finish_types:
             report.append("## Finish Types")
             report.append(f"  Unique finish types found: {len(self.finish_types)}")
             for ft in sorted(self.finish_types):
                 report.append(f"    - {ft}")
             report.append("")
-        
+
         if self.metadata_keys:
             report.append("## Metadata Keys")
             report.append(f"  Total unique keys: {len(self.metadata_keys)}")
             report.append("")
-        
-        return '\n'.join(report)
+
+        return "\n".join(report)
 
 
 @dataclass
 class ProgressTracker:
     """Enhanced progress tracking with ETA."""
+
     total: int
     processed: int = 0
     failed: int = 0
     start_time: float = field(default_factory=time.time)
     last_update: float = field(default_factory=time.time)
-    
+
     def update(self, success: bool = True) -> None:
         """Increment counters and trigger display at milestones."""
         self.processed += 1
         if not success:
             self.failed += 1
-        
+
         # Update display: every 100 items, at completion, or every 5 seconds
         current_time = time.time()
-        if (self.processed % 100 == 0 or 
-            self.processed == self.total or
-            current_time - self.last_update > 5):  # Also update every 5 seconds
-            
+        if (
+            self.processed % 100 == 0
+            or self.processed == self.total
+            or current_time - self.last_update > 5
+        ):  # Also update every 5 seconds
+
             self.show_progress()
             self.last_update = current_time
-    
+
     def show_progress(self) -> None:
         """Display progress with ETA."""
         elapsed = time.time() - self.start_time
-        
+
         if elapsed > 0:
             rate = self.processed / elapsed
             remaining = self.total - self.processed
@@ -188,32 +208,38 @@ class ProgressTracker:
         else:
             rate = 0
             eta = 0
-        
+
         percent = (self.processed / self.total * 100) if self.total > 0 else 0
-        
+
         if eta < 60:
             eta_str = f"{eta:.0f}s"
         else:
             eta_str = f"{eta/60:.1f}m"
-        
-        progress_msg = f"  Progress: {self.processed}/{self.total} ({percent:.1f}%) | " \
-                      f"Failed: {self.failed} | Rate: {rate:.1f}/s | ETA: {eta_str}"
-        
+
+        progress_msg = (
+            f"  Progress: {self.processed}/{self.total} ({percent:.1f}%) | "
+            f"Failed: {self.failed} | Rate: {rate:.1f}/s | ETA: {eta_str}"
+        )
+
         if TQDM_AVAILABLE:
-            tqdm.write(f"\r{progress_msg}", end='', file=None, nolock=True)
+            tqdm.write(f"\r{progress_msg}", end="", file=None, nolock=True)
         else:
-            print(f"\r{progress_msg}", end='', flush=True)
-    
+            print(f"\r{progress_msg}", end="", flush=True)
+
     def final_stats(self) -> Dict[str, Any]:
         """Return final statistics."""
         elapsed = time.time() - self.start_time
-        success_rate = ((self.processed - self.failed) / self.processed * 100) if self.processed > 0 else 0
-        
+        success_rate = (
+            ((self.processed - self.failed) / self.processed * 100)
+            if self.processed > 0
+            else 0
+        )
+
         return {
-            'total': self.total,
-            'processed': self.processed,
-            'failed': self.failed,
-            'success_rate': success_rate,
-            'elapsed_time': elapsed,
-            'rate': self.processed / elapsed if elapsed > 0 else 0
+            "total": self.total,
+            "processed": self.processed,
+            "failed": self.failed,
+            "success_rate": success_rate,
+            "elapsed_time": elapsed,
+            "rate": self.processed / elapsed if elapsed > 0 else 0,
         }

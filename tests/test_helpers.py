@@ -8,35 +8,35 @@ from io import StringIO
 
 
 @contextmanager
-def capture_logs(logger_name='chatgpt_extractor', level=logging.INFO):
+def capture_logs(logger_name="chatgpt_extractor", level=logging.INFO):
     """Context manager to capture log output for testing.
-    
+
     Args:
         logger_name: Name of the logger to capture
         level: Minimum log level to capture
-        
+
     Yields:
         StringIO object containing captured log messages
     """
     # Get the logger
     logger = logging.getLogger(logger_name)
-    
+
     # Create StringIO to capture output
     log_capture = StringIO()
-    
+
     # Create handler with the StringIO
     handler = logging.StreamHandler(log_capture)
     handler.setLevel(level)
-    
+
     # Add simple formatter
-    formatter = logging.Formatter('%(message)s')
+    formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
-    
+
     # Add handler to logger
     logger.addHandler(handler)
     original_level = logger.level
     logger.setLevel(level)
-    
+
     try:
         yield log_capture
     finally:
@@ -48,7 +48,7 @@ def capture_logs(logger_name='chatgpt_extractor', level=logging.INFO):
 
 def assert_in_logs(log_capture, text):
     """Assert that text appears in captured logs.
-    
+
     Args:
         log_capture: StringIO from capture_logs
         text: Text to search for in logs
@@ -59,11 +59,11 @@ def assert_in_logs(log_capture, text):
 
 def get_log_lines(log_capture):
     """Get log content as list of lines.
-    
+
     Args:
         log_capture: StringIO from capture_logs
-        
+
     Returns:
         List of log lines
     """
-    return log_capture.getvalue().strip().split('\n') if log_capture.getvalue() else []
+    return log_capture.getvalue().strip().split("\n") if log_capture.getvalue() else []
