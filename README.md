@@ -33,17 +33,37 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 # Install dependencies
 pip install pyyaml
 
-# Extract to markdown (default)
+# Default: extract to Markdown
 python -m chatgpt_extractor data/raw/conversations.json data/output
 
-# Extract to both markdown and JSON
-python -m chatgpt_extractor data/raw/conversations.json data/output --json-dir
+# JSON only
+python -m chatgpt_extractor --output-format json
 
-# Extract to single JSON file
-python -m chatgpt_extractor data/raw/conversations.json data/output --json-file all_conversations.json
+or
 
-# JSON only (no markdown)
-python -m chatgpt_extractor data/raw/conversations.json data/output --no-markdown --json-dir
+python -m chatgpt_extractor data/raw/conversations.json data/output --output-format json
+
+# Both Markdown and JSON
+python -m chatgpt_extractor --output-format both
+
+# JSON as a single consolidated file
+python -m chatgpt_extractor --output-format json --json-format single --json-file all_conversations.json
+
+# JSON as multiple files in custom directory
+python -m chatgpt_extractor --output-format json --json-format multiple --json-dir custom/json/
+
+# Markdown in a custom directory
+python -m chatgpt_extractor --output-format markdown --markdown-dir custom/md/
+
+# Disable timestamp syncing (use current system time for file timestamps)
+python -m chatgpt_extractor --preserve-timestamps false
+
+# Run failure analysis if conversion issues occurred
+python -m chatgpt_extractor --analyze-failures
+
+# Enable debug logging for troubleshooting
+python -m chatgpt_extractor --debug
+
 ```
 
 ## Output Structure
