@@ -6,13 +6,14 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 
 - Processes ChatGPT `conversations.json` export files
 - Converts complex conversation graphs to linear transcripts
-- Filters out system messages and hidden content
+- Filters out most system messages (keeps at most one user-system prompt) and hidden/tool messages, except when they contain meaningful content.
 - Preserves code blocks, citations, and file references
 - Groups conversations by project automatically
 - Handles 6000+ conversations efficiently with detailed logging
 - Visibility to schema evolution for transparency
-- **Multiple output formats**: Markdown, JSON, or both simultaneously
-- **Timestamp preservation**: Maintains original creation/update times on files
+- Filters certain hidden content and revision history
+- Multiple output formats: Markdown, JSON, or both simultaneously
+- Timestamp preservation: Maintains original creation/update times on files
 
 ## Requirements
 
@@ -76,14 +77,14 @@ data/output/
 │   └── project_XXXXXXXX/      # Project folders
 │       ├── Project Conv 1.md
 │       └── Project Conv 2.md
-├── json/                       # JSON output (if --json-dir)
+├── json/                       # # JSON output (if --output-format includes json & --json-format multiple, default: data/output/json/)
 │   ├── Regular Conversation 1.json
 │   ├── Regular Conversation 2.json
 │   └── project_XXXXXXXX/
 │       ├── Project Conv 1.json
 │       └── Project Conv 2.json
-├── all_conversations.json      # Single file (if --json-file)
-├── schema_evolution.log        # Format tracking
+├── all_conversations.json      # Single file (if --output-format json and --json-format single with --json-file specified)
+├── schema_evolution.log        # Format tracking (only if enabled in extractor implementation)
 └── conversion_log.log          # Failure details (if any)
 ```
 
@@ -121,11 +122,16 @@ Structured data with:
 
 ## Performance
 
-- **Processed:** 7,000 conversations (50-MB JSON export)
+- **Processed:** 7,000 conversations (500 MB JSON export)
 - **Performance:** <5 minutes end-to-end processing
 - **Success Rate:** 99.5%+ with comprehensive error logging
 - **Output:** 135MB structured markdown across project folders
 - **Architecture:** Memory-efficient graph traversal with defensive parsing
+
+**Migration Note (v3.1):**  
+ - Default output directory changed from `data/output_md` to `data/output`.  
+ - Markdown files are now stored under `data/output/md/` by default.  
+ - Use `--markdown-dir` to specify a custom location without the subdirectory.  
 
 ## Best For
 
