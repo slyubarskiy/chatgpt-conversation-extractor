@@ -254,7 +254,7 @@ class ConversationExtractorV2:
                 progress.update(success=True)
             except Exception as e:
                 conv_id = conv.get("id", conv.get("conversation_id", "unknown"))
-                title = conv.get("title", "Untitled")[:50]
+                title = (conv.get("title") or "Untitled")[:50]
                 self.log_conversion_failure(conv, conv_id, title, e)
                 progress.update(success=False)
 
@@ -349,7 +349,7 @@ class ConversationExtractorV2:
 
         metadata["id"] = conv.get("id", conv.get("conversation_id", "unknown"))
 
-        metadata["title"] = conv.get("title", "Untitled Conversation")
+        metadata["title"] = conv.get("title") or "Untitled Conversation"
 
         if create_time := conv.get("create_time"):
             metadata["created"] = datetime.fromtimestamp(create_time).isoformat() + "Z"
@@ -735,7 +735,7 @@ class ConversationExtractorV2:
                 lines.append("")
                 lines.append("**Citations:**")
                 for citation in msg["citations"]:
-                    title = citation.get("title", "Untitled")
+                    title = citation.get("title") or "Untitled"
                     url = citation.get("url", "")
                     type_ = citation.get("type", "webpage")
 
@@ -821,8 +821,12 @@ class ConversationExtractorV2:
             log_exception(self.logger, e, f"writing to {file_path}")
             raise
 
-    def sanitize_filename(self, title: str, max_length: int = 100) -> str:
+    def sanitize_filename(self, title: Optional[str], max_length: int = 100) -> str:
         """Convert title to safe filename."""
+        # Handle None title
+        if title is None:
+            title = "untitled"
+        
         # Windows/Unix forbidden characters: <>:"/\|?*
         safe_title = re.sub(r'[<>:"/\\|?*]', "_", title)
 
@@ -961,7 +965,7 @@ class ConversationExtractorV2:
         Returns:
             Path to the created JSON file
         """
-        title = json_data.get("title", "untitled")
+        title = json_data.get("title") or "untitled"
         safe_title = self.sanitize_filename(title)
 
         # Handle project subfolder structure
