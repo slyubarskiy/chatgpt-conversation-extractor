@@ -186,6 +186,71 @@ class TestMessageProcessor:
         assert "https://example.com" in urls
         assert "https://test.org" in urls
 
+    def test_extract_web_urls_from_message_safe_urls(self, processor):
+        """Test URL extraction from newer message-level safe_urls."""
+        msg = {
+            "content": {"content_type": "text"},
+            "metadata": {
+                "safe_urls": [
+                    "https://docs.example.com/a",
+                    "https://docs.example.com/b",
+                ]
+            },
+        }
+        urls = processor.extract_web_urls(msg)
+        assert "https://docs.example.com/a" in urls
+        assert "https://docs.example.com/b" in urls
+
+    def test_extract_web_urls_from_search_result_groups(self, processor):
+        """Test URL extraction from newer search_result_groups metadata."""
+        msg = {
+            "content": {"content_type": "text"},
+            "metadata": {
+                "search_result_groups": [
+                    {
+                        "entries": [
+                            {"url": "https://search.example.com/result-1"},
+                            {
+                                "url": "https://search.example.com/result-2",
+                                "supporting_websites": [
+                                    {"url": "https://search.example.com/supporting"}
+                                ],
+                            },
+                        ]
+                    }
+                ]
+            },
+        }
+        urls = processor.extract_web_urls(msg)
+        assert "https://search.example.com/result-1" in urls
+        assert "https://search.example.com/result-2" in urls
+        assert "https://search.example.com/supporting" in urls
+
+    def test_extract_web_urls_from_content_references(self, processor):
+        """Test URL extraction from newer content_references metadata."""
+        msg = {
+            "content": {"content_type": "text"},
+            "metadata": {
+                "content_references": [
+                    {
+                        "safe_urls": ["https://refs.example.com/safe"],
+                        "sources": [
+                            {
+                                "url": "https://refs.example.com/source",
+                                "supporting_websites": [
+                                    {"url": "https://refs.example.com/supporting"}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+        urls = processor.extract_web_urls(msg)
+        assert "https://refs.example.com/safe" in urls
+        assert "https://refs.example.com/source" in urls
+        assert "https://refs.example.com/supporting" in urls
+
     def test_extract_file_names_from_attachments(self, processor):
         """Test file name extraction from attachments."""
         msg = {

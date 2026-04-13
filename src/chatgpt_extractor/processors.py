@@ -315,20 +315,23 @@ class MessageProcessor:
     def extract_web_urls(
         self, msg: Dict[str, Any], conv_data: Optional[Dict[str, Any]] = None
     ) -> List[str]:
-        """Extract web URLs from 6+ sources in message and conversation.
+        """Extract web URLs from message and conversation metadata.
 
         Sources checked:
         1. Citation metadata URLs
-        2. Conversation safe_urls
-        3. Content URL fields (tether_quote, sonic_webpage)
-        4. Content domain fields
-        5. Content result text (regex)
-        6. Parts array text (regex)
+        2. Message metadata safe_urls
+        3. Message search_result_groups / content_references URLs
+        4. Conversation safe_urls
+        5. Content URL fields (tether_quote, sonic_webpage)
+        6. Content domain fields
+        7. Content result text (regex)
+        8. Parts array text (regex)
         """
         urls = set()
 
         content = msg.get("content", {})
         content_type = content.get("content_type", "")
+        metadata = msg.get("metadata", {})
 
         # Different extraction based on content type
         if content_type == "tether_quote":
@@ -359,11 +362,15 @@ class MessageProcessor:
 
         # Generic URL extraction from any content type
         # Check citations
-        citations = msg.get("metadata", {}).get("citations", [])
+        citations = metadata.get("citations", [])
         for citation in citations:
             if citation_meta := citation.get("metadata"):
                 if url := citation_meta.get("url"):
                     urls.add(url)
+
+        # Newer exports often attach URLs to message metadata instead of
+        # conversation-level safe_urls. Collect those explicit paths too.
+        urls.update(self._extract_metadata_urls(metadata))
 
         # Check parts for text containing URLs
         if "parts" in content:
@@ -381,6 +388,46 @@ class MessageProcessor:
             urls.update(conv_data["safe_urls"])
 
         return sorted(list(urls))
+
+    def _extract_metadata_urls(self, metadata: Dict[str, Any]) -> List[str]:
+        """Extract URLs from newer message metadata structures."""
+        urls = set()
+
+        def add_url(value: Any) -> None:
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                urls.add(value)
+
+        # Direct message-level safe_urls
+        for url in metadata.get("safe_urls", []) or []:
+            add_url(url)
+
+        # Search result metadata from tool / assistant messages
+        for group in metadata.get("search_result_groups", []) or []:
+            if not isinstance(group, dict):
+                continue
+            for entry in group.get("entries", []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                add_url(entry.get("url"))
+                for site in entry.get("supporting_websites", []) or []:
+                    if isinstance(site, dict):
+                        add_url(site.get("url"))
+
+        # Content references used by newer exports for sources footnotes
+        for ref in metadata.get("content_references", []) or []:
+            if not isinstance(ref, dict):
+                continue
+            for url in ref.get("safe_urls", []) or []:
+                add_url(url)
+            for source in ref.get("sources", []) or []:
+                if not isinstance(source, dict):
+                    continue
+                add_url(source.get("url"))
+                for site in source.get("supporting_websites", []) or []:
+                    if isinstance(site, dict):
+                        add_url(site.get("url"))
+
+        return sorted(urls)
 
     def extract_file_names(self, msg: Dict[str, Any]) -> List[str]:
         """Extract uploaded file names from message attachments."""
