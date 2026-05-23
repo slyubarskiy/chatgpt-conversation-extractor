@@ -35,8 +35,8 @@ class ConversationExtractorV2:
 
     def __init__(
         self,
-        input_file: str,
-        output_dir: str,
+        input_file: Optional[str] = None,
+        output_dir: Optional[str] = None,
         output_format: str = "markdown",
         json_format: str = "multiple",
         markdown_dir: Optional[str] = None,
@@ -47,8 +47,14 @@ class ConversationExtractorV2:
         """Initialize the extractor with multi-format configuration.
 
         Args:
-            input_file: Path to conversations.json
-            output_dir: Base directory for output files
+            input_file: Path to conversations.json. Optional — only required if
+                        extract_all() will be called. Per-conversation methods
+                        (process_conversation, generate_markdown, save_markdown_file,
+                        sanitize_filename) operate on dicts already in memory and
+                        do not need a file on disk.
+            output_dir: Base directory for output files (required). Typed Optional
+                        only because Python signature ordering requires a default
+                        once input_file has one; runtime-validated as required.
             output_format: 'markdown', 'json', or 'both'
             json_format: 'single' or 'multiple' for JSON output
             markdown_dir: Override path for markdown output (bypasses md/ subdirectory)
@@ -58,7 +64,12 @@ class ConversationExtractorV2:
                                  (individual files only; single JSON uses processing time)
         """
         self.logger = get_logger(__name__)
-        self.input_file = Path(input_file)
+        if output_dir is None:
+            raise ValueError("output_dir is required")
+        # input_file is optional: callers using only per-conversation methods on
+        # in-memory dicts don't need a file on disk. extract_all() validates that
+        # it was supplied (clear error instead of a cryptic open(None) failure).
+        self.input_file = Path(input_file) if input_file else None
         self.output_dir = Path(output_dir)
 
         # Store format configuration
@@ -174,6 +185,10 @@ class ConversationExtractorV2:
 
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
+        if self.input_file is None:
+            raise ValueError(
+                "extract_all() requires input_file to be set at construction time"
+            )
         self.logger.info(f"ChatGPT Conversation Extractor v2.0")
         self.logger.info(f"{'='*60}")
 
@@ -929,7 +944,7 @@ class ConversationExtractorV2:
                 "failed_conversations": len(self.conversion_failures),
                 "extractor_version": "3.1",
                 "export_format": "single",
-                "source_file": str(self.input_file),
+                "source_file": str(self.input_file) if self.input_file else None,
                 "timestamp_sync_enabled": self.preserve_timestamps,
             },
             "conversations": conversations,
