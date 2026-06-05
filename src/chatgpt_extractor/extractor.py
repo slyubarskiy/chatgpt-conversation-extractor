@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from collections import defaultdict
 
@@ -43,6 +43,8 @@ class ConversationExtractorV2:
         json_dir: Optional[str] = None,
         json_file: Optional[str] = None,
         preserve_timestamps: bool = True,
+        per_turn_timestamps: Optional[bool] = None,
+        config_path: Optional[str] = None,
     ):
         """Initialize the extractor with multi-format configuration.
 
@@ -62,6 +64,20 @@ class ConversationExtractorV2:
             json_file: Override path for single JSON output file
             preserve_timestamps: Sync file timestamps with conversation metadata
                                  (individual files only; single JSON uses processing time)
+            per_turn_timestamps: When True (default), emit per-message
+                        timestamps as italic ISO-8601 UTC lines beneath each
+                        role heading in markdown output, and as the
+                        ``timestamp`` field in JSON output. Pass ``False`` to
+                        match the pre-config behaviour (conversation-level
+                        timestamps in YAML frontmatter only). Pass ``None``
+                        (default) to read from the config file; the config
+                        file itself defaults to ``True``.
+            config_path: Path to a YAML config file overriding built-in
+                        defaults. Searches ``$CHATGPT_EXTRACTOR_CONFIG``,
+                        ``./chatgpt_extractor.yaml``, and
+                        ``~/.config/chatgpt_extractor/config.yaml`` if not
+                        explicitly supplied. See ``config.py`` for the
+                        layering rules.
         """
         self.logger = get_logger(__name__)
         if output_dir is None:
@@ -76,6 +92,15 @@ class ConversationExtractorV2:
         self.output_format = output_format
         self.json_format = json_format
         self.preserve_timestamps = preserve_timestamps
+
+        # Resolve per_turn_timestamps: explicit constructor arg wins; otherwise
+        # consult the config file (which itself falls back to a True default).
+        if per_turn_timestamps is None:
+            from .config import load_config
+            per_turn_timestamps = bool(
+                load_config(config_path).get("per_turn_timestamps", True)
+            )
+        self.per_turn_timestamps = per_turn_timestamps
 
         # Determine output paths based on configuration
         self.output_paths = self.determine_output_paths(
@@ -571,6 +596,23 @@ class ConversationExtractorV2:
 
         return list(reversed(messages))
 
+    @staticmethod
+    def _format_per_turn_ts(unix_seconds: float) -> str:
+        """Format a Unix timestamp as ISO-8601 UTC for per-turn rendering.
+
+        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``). The
+        conversation-level ``created`` / ``updated`` fields in YAML
+        frontmatter use a different convention (naive ``fromtimestamp`` +
+        ``"Z"`` suffix, which mislabels local-wall-time as UTC). Per-turn
+        timestamps are emitted correctly here; reconciling the two formats
+        within a single file is a deferred follow-up tracked elsewhere.
+        """
+        return (
+            datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
     def process_messages(
         self, messages: List[Dict[str, Any]], conv_id: str, conv_data: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -611,6 +653,13 @@ class ConversationExtractorV2:
                 if content:  # Only add if has content after filtering
                     msg_data = {"role": author_role, "content": content}
 
+                    # Preserve per-message create_time when present on the
+                    # source. Surfaced under each role heading in markdown
+                    # output and as the ``timestamp`` field in JSON output
+                    # (gated on the per_turn_timestamps flag at render time).
+                    if (ct := msg.get("create_time")) is not None:
+                        msg_data["create_time"] = ct
+
                     citations = self.message_processor.extract_citations(msg)
                     if citations:
                         msg_data["citations"] = citations
@@ -637,7 +686,10 @@ class ConversationExtractorV2:
                         msg, conv_id
                     )
                     if extracted:
-                        processed.append({"role": "assistant", "content": extracted})
+                        tool_msg_data = {"role": "assistant", "content": extracted}
+                        if (ct := msg.get("create_time")) is not None:
+                            tool_msg_data["create_time"] = ct
+                        processed.append(tool_msg_data)
 
         return processed
 
@@ -689,6 +741,12 @@ class ConversationExtractorV2:
 
                 merged_msg = {"role": "assistant", "content": combined_content}
 
+                # Inherit the earliest segment's create_time as the response's
+                # start time — matches how a reader would interpret "when did
+                # the assistant begin replying."
+                if "create_time" in current:
+                    merged_msg["create_time"] = current["create_time"]
+
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
                 if "web_urls" in current:
@@ -739,6 +797,18 @@ class ConversationExtractorV2:
                 lines.append("## Assistant")
             else:
                 lines.append(f"## {role.title()}")
+
+            # Per-turn timestamp (italic ISO line under the role heading).
+            # Gated on the flag so callers using --no-per-turn-timestamps
+            # get exactly the pre-config output. System messages are skipped
+            # because the system prompt's "send time" is conceptually the
+            # custom-instructions configuration time, not a chat moment.
+            if (
+                self.per_turn_timestamps
+                and role != "system"
+                and (ct := msg.get("create_time")) is not None
+            ):
+                lines.append(f"*{self._format_per_turn_ts(ct)}*")
 
             if role == "user" and "files" in msg:
                 for file in msg["files"]:
@@ -899,12 +969,21 @@ class ConversationExtractorV2:
 
         # Transform messages to JSON structure, preserving optional fields only when present to minimize output size
         for msg in messages:
+            # ``timestamp`` is the per-message create_time (Unix seconds in the
+            # source) rendered as ISO-8601 UTC for consistency with the
+            # conversation-level ``created`` / ``updated`` style. Emitted when
+            # the source carries it AND the per_turn_timestamps flag is on;
+            # otherwise null, matching the legacy field shape.
+            ct = msg.get("create_time")
+            ts_str = (
+                self._format_per_turn_ts(ct)
+                if (self.per_turn_timestamps and ct is not None)
+                else None
+            )
             json_msg = {
                 "role": msg.get("role"),
                 "content": msg.get("content", ""),
-                "timestamp": msg.get(
-                    "timestamp"
-                ),  # May be None for older conversations
+                "timestamp": ts_str,
             }
 
             # Include auxiliary data only when present to keep JSON compact
