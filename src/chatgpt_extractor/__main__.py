@@ -150,6 +150,32 @@ Migration note for v3.1:
         help="Sync file timestamps with conversation metadata (default: true)",
     )
 
+    # Per-turn timestamps in output (italic ISO line under each role heading
+    # in markdown; ``timestamp`` field in JSON). Default is True from the
+    # config layer; pass --no-per-turn-timestamps to match the pre-config
+    # output format.
+    parser.add_argument(
+        "--per-turn-timestamps",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Emit per-message timestamps in output (default from config "
+            "file, which defaults to true). Pass --no-per-turn-timestamps "
+            "to suppress."
+        ),
+    )
+
+    parser.add_argument(
+        "--config",
+        dest="config_path",
+        default=None,
+        help=(
+            "Path to a YAML config file (search order: this flag, "
+            "$CHATGPT_EXTRACTOR_CONFIG, ./chatgpt_extractor.yaml, "
+            "~/.config/chatgpt_extractor/config.yaml). See config.py."
+        ),
+    )
+
     # Existing options
     parser.add_argument(
         "--analyze-failures",
@@ -193,6 +219,8 @@ Migration note for v3.1:
             json_dir=args.json_dir,
             json_file=args.json_file,
             preserve_timestamps=args.preserve_timestamps,
+            per_turn_timestamps=args.per_turn_timestamps,
+            config_path=args.config_path,
         )
         extractor.extract_all()
 
