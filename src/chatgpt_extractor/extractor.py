@@ -44,6 +44,7 @@ class ConversationExtractorV2:
         json_file: Optional[str] = None,
         preserve_timestamps: bool = True,
         per_turn_timestamps: Optional[bool] = None,
+        gpt_metadata: Optional[bool] = None,
         config_path: Optional[str] = None,
     ):
         """Initialize the extractor with multi-format configuration.
@@ -72,6 +73,19 @@ class ConversationExtractorV2:
                         timestamps in YAML frontmatter only). Pass ``None``
                         (default) to read from the config file; the config
                         file itself defaults to ``True``.
+            gpt_metadata: When True (default), enrich output with Custom
+                        GPT / per-turn model / plugin signals. Frontmatter
+                        gains ``gizmo_id`` (only for Custom GPTs, not
+                        projects), ``gizmo_type``, and ``models_used`` (the
+                        deduped set of per-message ``model_slug`` values).
+                        The per-turn italic line gains ``· model_slug``,
+                        ``· plugin:<namespace>``, and ``· gpt:<id>`` (the
+                        last only when the per-message gizmo differs from
+                        the conversation default — the @mention case). JSON
+                        per-message dicts gain ``model_slug``, ``gizmo_id``,
+                        ``plugin_namespace``. Pass ``False`` for legacy
+                        output; ``None`` (default) reads from the config
+                        file (itself defaults to ``True``).
             config_path: Path to a YAML config file overriding built-in
                         defaults. Searches ``$CHATGPT_EXTRACTOR_CONFIG``,
                         ``./chatgpt_extractor.yaml``, and
@@ -93,14 +107,20 @@ class ConversationExtractorV2:
         self.json_format = json_format
         self.preserve_timestamps = preserve_timestamps
 
-        # Resolve per_turn_timestamps: explicit constructor arg wins; otherwise
-        # consult the config file (which itself falls back to a True default).
-        if per_turn_timestamps is None:
+        # Resolve flag-style config values: explicit constructor arg wins;
+        # otherwise consult the config file (which itself falls back to a
+        # True default). Loaded once and shared across all flags so a
+        # single config-file read covers both knobs.
+        _cfg = None
+        if per_turn_timestamps is None or gpt_metadata is None:
             from .config import load_config
-            per_turn_timestamps = bool(
-                load_config(config_path).get("per_turn_timestamps", True)
-            )
+            _cfg = load_config(config_path)
+        if per_turn_timestamps is None:
+            per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
+        if gpt_metadata is None:
+            gpt_metadata = bool(_cfg.get("gpt_metadata", True))
         self.per_turn_timestamps = per_turn_timestamps
+        self.gpt_metadata = gpt_metadata
 
         # Determine output paths based on configuration
         self.output_paths = self.determine_output_paths(
@@ -410,6 +430,13 @@ class ConversationExtractorV2:
             if project_id.startswith("g-p-"):
                 metadata["project_id"] = project_id
 
+        # Custom GPT / per-turn model / models_used. Module-isolated so the
+        # extractor doesn't grow another paragraph of inline shape-poking;
+        # online_sync inherits via OnlineRenderer wrapping this class.
+        if self.gpt_metadata:
+            from .gpt_metadata import extract_conv_gpt_meta
+            metadata.update(extract_conv_gpt_meta(conv))
+
         return metadata
 
     def collect_message_statistics(
@@ -660,6 +687,15 @@ class ConversationExtractorV2:
                     if (ct := msg.get("create_time")) is not None:
                         msg_data["create_time"] = ct
 
+                    # Per-turn GPT signals (model_slug, gizmo_id, plugin
+                    # namespace). Stashed unconditionally because their
+                    # cost is trivial; the render-time flag decides
+                    # whether they reach the markdown / JSON output.
+                    from .gpt_metadata import extract_msg_gpt_signals
+                    for k, v in extract_msg_gpt_signals(msg).items():
+                        if v is not None:
+                            msg_data[k] = v
+
                     citations = self.message_processor.extract_citations(msg)
                     if citations:
                         msg_data["citations"] = citations
@@ -689,6 +725,10 @@ class ConversationExtractorV2:
                         tool_msg_data = {"role": "assistant", "content": extracted}
                         if (ct := msg.get("create_time")) is not None:
                             tool_msg_data["create_time"] = ct
+                        from .gpt_metadata import extract_msg_gpt_signals
+                        for k, v in extract_msg_gpt_signals(msg).items():
+                            if v is not None:
+                                tool_msg_data[k] = v
                         processed.append(tool_msg_data)
 
         return processed
@@ -746,6 +786,13 @@ class ConversationExtractorV2:
                 # the assistant begin replying."
                 if "create_time" in current:
                     merged_msg["create_time"] = current["create_time"]
+
+                # Per-turn GPT signals inherit from the earliest segment too
+                # (the assistant's reply may continue across segments but the
+                # model / gizmo / plugin context applies to the whole reply).
+                for k in ("model_slug", "gizmo_id", "plugin_namespace"):
+                    if k in current:
+                        merged_msg[k] = current[k]
 
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
@@ -808,7 +855,16 @@ class ConversationExtractorV2:
                 and role != "system"
                 and (ct := msg.get("create_time")) is not None
             ):
-                lines.append(f"*{self._format_per_turn_ts(ct)}*")
+                # GPT-metadata suffix piggybacks on the per-turn timestamp
+                # line: " · model_slug · plugin:<ns> · gpt:<id>" where any
+                # absent segment is suppressed. gpt:<id> only fires when
+                # the per-message gizmo differs from the conversation
+                # default (the @mention pattern).
+                suffix = ""
+                if self.gpt_metadata:
+                    from .gpt_metadata import format_per_turn_suffix
+                    suffix = format_per_turn_suffix(msg, metadata.get("gizmo_id"))
+                lines.append(f"*{self._format_per_turn_ts(ct)}{suffix}*")
 
             if role == "user" and "files" in msg:
                 for file in msg["files"]:
@@ -963,6 +1019,14 @@ class ConversationExtractorV2:
             "messages": [],
         }
 
+        # Mirror gpt_metadata frontmatter additions in the JSON envelope
+        # so JSON consumers don't have to re-derive them. Only fields the
+        # extractor actually populated are surfaced; absence stays absent.
+        if self.gpt_metadata:
+            for k in ("gizmo_id", "gizmo_type", "models_used"):
+                if k in metadata:
+                    json_data[k] = metadata[k]
+
         # Handle custom instructions - already in dict format from metadata
         if custom_instructions := metadata.get("custom_instructions"):
             json_data["custom_instructions"] = custom_instructions
@@ -985,6 +1049,15 @@ class ConversationExtractorV2:
                 "content": msg.get("content", ""),
                 "timestamp": ts_str,
             }
+
+            # Per-turn GPT signals — only emit when the flag is on AND the
+            # signal is actually present on this message, so legacy JSON
+            # consumers don't see new keys for conversations that had no
+            # per-turn GPT data anyway.
+            if self.gpt_metadata:
+                for k in ("model_slug", "gizmo_id", "plugin_namespace"):
+                    if k in msg:
+                        json_msg[k] = msg[k]
 
             # Include auxiliary data only when present to keep JSON compact
             if citations := msg.get("citations"):
