@@ -180,6 +180,21 @@ Migration note for v3.1:
         ),
     )
 
+    # Path to GPT_Names.xlsx sidecar (id → human-readable name). When
+    # supplied and readable, frontmatter gains ``gpt_name:`` and per-turn
+    # ``gpt:<id>`` substitutes ``gpt:<Pretty Name>``. Missing / unreadable
+    # file degrades to id-only — no error.
+    parser.add_argument(
+        "--gpt-names-xlsx",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to GPT_Names.xlsx mapping gizmo_id -> name "
+            "(populated by `online-sync gpt-names` in the live-sync "
+            "repo). Default from config file (default: no resolution)."
+        ),
+    )
+
     parser.add_argument(
         "--config",
         dest="config_path",
@@ -236,6 +251,7 @@ Migration note for v3.1:
             preserve_timestamps=args.preserve_timestamps,
             per_turn_timestamps=args.per_turn_timestamps,
             gpt_metadata=args.gpt_metadata,
+            gpt_names_xlsx=args.gpt_names_xlsx,
             config_path=args.config_path,
         )
         extractor.extract_all()

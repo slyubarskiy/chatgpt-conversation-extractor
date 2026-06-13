@@ -27,6 +27,14 @@ Currently recognised keys:
   ``False``, output matches the pre-config behaviour (only the
   conversation-level ``model:`` from ``default_model_slug``).
 
+- ``gpt_names_xlsx`` (str | None, default ``None``) — path to an xlsx
+  sidecar mapping ``gizmo_id`` → human-readable name (produced by
+  ``online_sync.gizmo_names_sync.sync_gizmos``). When set and the file is
+  readable, frontmatter gains a ``gpt_name:`` field for Custom GPT
+  conversations, and the per-turn ``gpt:<id>`` segment substitutes the
+  human-readable name when known (falls back to the raw id otherwise).
+  Missing file or unreadable workbook silently degrades to id-only output.
+
 A malformed YAML file falls back silently to the built-in defaults — config
 file errors should never block the extractor from running.
 """
@@ -42,6 +50,7 @@ import yaml
 DEFAULTS: Dict[str, Any] = {
     "per_turn_timestamps": True,
     "gpt_metadata": True,
+    "gpt_names_xlsx": None,
 }
 
 

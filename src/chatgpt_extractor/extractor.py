@@ -45,6 +45,7 @@ class ConversationExtractorV2:
         preserve_timestamps: bool = True,
         per_turn_timestamps: Optional[bool] = None,
         gpt_metadata: Optional[bool] = None,
+        gpt_names_xlsx: Optional[str] = None,
         config_path: Optional[str] = None,
     ):
         """Initialize the extractor with multi-format configuration.
@@ -86,6 +87,16 @@ class ConversationExtractorV2:
                         ``plugin_namespace``. Pass ``False`` for legacy
                         output; ``None`` (default) reads from the config
                         file (itself defaults to ``True``).
+            gpt_names_xlsx: Optional path to a ``GPT_Names.xlsx`` sidecar
+                        (id → human-readable name). When provided AND the
+                        file is readable, frontmatter gains a ``gpt_name:``
+                        field for Custom GPT conversations, and per-turn
+                        ``gpt:<id>`` is replaced by ``gpt:<Pretty Name>``
+                        where a name is known. Missing file or malformed
+                        workbook silently degrades to id-only output —
+                        the extractor never crashes on a bad sidecar.
+                        ``None`` (default) reads from the config file
+                        (itself defaults to ``None``, i.e. no resolution).
             config_path: Path to a YAML config file overriding built-in
                         defaults. Searches ``$CHATGPT_EXTRACTOR_CONFIG``,
                         ``./chatgpt_extractor.yaml``, and
@@ -110,17 +121,32 @@ class ConversationExtractorV2:
         # Resolve flag-style config values: explicit constructor arg wins;
         # otherwise consult the config file (which itself falls back to a
         # True default). Loaded once and shared across all flags so a
-        # single config-file read covers both knobs.
+        # single config-file read covers all knobs.
         _cfg = None
-        if per_turn_timestamps is None or gpt_metadata is None:
+        if (
+            per_turn_timestamps is None
+            or gpt_metadata is None
+            or gpt_names_xlsx is None
+        ):
             from .config import load_config
+
             _cfg = load_config(config_path)
         if per_turn_timestamps is None:
             per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
         if gpt_metadata is None:
             gpt_metadata = bool(_cfg.get("gpt_metadata", True))
+        if gpt_names_xlsx is None:
+            # ``None`` here means "no name resolution" — distinct from
+            # the per_turn / gpt_metadata booleans which default True.
+            gpt_names_xlsx = _cfg.get("gpt_names_xlsx") if _cfg else None
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
+        # Load the gpt_id → name map once at construct time; downstream
+        # reads (extract_metadata + generate_markdown) reuse the same
+        # dict. Missing / bad sidecar → empty dict, no crash.
+        from .gpt_metadata import load_gpt_names_xlsx
+
+        self._gpt_names: Dict[str, str] = load_gpt_names_xlsx(gpt_names_xlsx)
 
         # Determine output paths based on configuration
         self.output_paths = self.determine_output_paths(
@@ -435,7 +461,14 @@ class ConversationExtractorV2:
         # online_sync inherits via OnlineRenderer wrapping this class.
         if self.gpt_metadata:
             from .gpt_metadata import extract_conv_gpt_meta
+
             metadata.update(extract_conv_gpt_meta(conv))
+            # Resolve gizmo_id → human-readable name when the sidecar map
+            # has it. Lookups against an empty dict are O(1) no-ops, so we
+            # don't gate this on a separate "names enabled" flag.
+            if gid := metadata.get("gizmo_id"):
+                if name := self._gpt_names.get(gid):
+                    metadata["gpt_name"] = name
 
         return metadata
 
@@ -692,6 +725,7 @@ class ConversationExtractorV2:
                     # cost is trivial; the render-time flag decides
                     # whether they reach the markdown / JSON output.
                     from .gpt_metadata import extract_msg_gpt_signals
+
                     for k, v in extract_msg_gpt_signals(msg).items():
                         if v is not None:
                             msg_data[k] = v
@@ -726,6 +760,7 @@ class ConversationExtractorV2:
                         if (ct := msg.get("create_time")) is not None:
                             tool_msg_data["create_time"] = ct
                         from .gpt_metadata import extract_msg_gpt_signals
+
                         for k, v in extract_msg_gpt_signals(msg).items():
                             if v is not None:
                                 tool_msg_data[k] = v
@@ -856,14 +891,21 @@ class ConversationExtractorV2:
                 and (ct := msg.get("create_time")) is not None
             ):
                 # GPT-metadata suffix piggybacks on the per-turn timestamp
-                # line: " · model_slug · plugin:<ns> · gpt:<id>" where any
-                # absent segment is suppressed. gpt:<id> only fires when
-                # the per-message gizmo differs from the conversation
-                # default (the @mention pattern).
+                # line: " · model_slug · plugin:<ns> · gpt:<name-or-id>"
+                # where any absent segment is suppressed. gpt:<...> only
+                # fires when the per-message gizmo differs from the
+                # conversation default (the @mention pattern). The
+                # ``gpt:`` segment shows the human-readable name when
+                # ``_gpt_names`` resolves it, else falls back to the id.
                 suffix = ""
                 if self.gpt_metadata:
                     from .gpt_metadata import format_per_turn_suffix
-                    suffix = format_per_turn_suffix(msg, metadata.get("gizmo_id"))
+
+                    suffix = format_per_turn_suffix(
+                        msg,
+                        metadata.get("gizmo_id"),
+                        names_map=self._gpt_names,
+                    )
                 lines.append(f"*{self._format_per_turn_ts(ct)}{suffix}*")
 
             if role == "user" and "files" in msg:
@@ -1023,7 +1065,7 @@ class ConversationExtractorV2:
         # so JSON consumers don't have to re-derive them. Only fields the
         # extractor actually populated are surfaced; absence stays absent.
         if self.gpt_metadata:
-            for k in ("gizmo_id", "gizmo_type", "models_used"):
+            for k in ("gizmo_id", "gizmo_type", "models_used", "gpt_name"):
                 if k in metadata:
                     json_data[k] = metadata[k]
 
