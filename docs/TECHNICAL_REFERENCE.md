@@ -15,26 +15,70 @@
 
 ```python
 class ConversationExtractorV2:
-    """Enhanced extractor with schema tracking and multi-format output"""
-    
-    def __init__(self, input_file: str, output_dir: str,
-                 markdown: bool = True,
-                 json_dir: bool = False,
-                 json_file: Optional[str] = None)
+    """Enhanced extractor with schema tracking, multi-format output, and
+    per-message metadata enrichment."""
+
+    def __init__(
+        self,
+        input_file: Optional[str] = None,
+        output_dir: Optional[str] = None,        # required (Optional typing only for arg ordering)
+        output_format: str = "markdown",          # 'markdown' | 'json' | 'both'
+        json_format: str = "multiple",            # 'multiple' | 'single'
+        markdown_dir: Optional[str] = None,       # override md/ subdir
+        json_dir: Optional[str] = None,           # override json/ subdir
+        json_file: Optional[str] = None,          # override single-JSON path
+        preserve_timestamps: bool = True,
+        per_turn_timestamps: Optional[bool] = None,   # None = read from config (default True)
+        gpt_metadata: Optional[bool] = None,           # None = read from config (default True)
+        gpt_names_xlsx: Optional[str] = None,          # None = read from config (default None)
+        config_path: Optional[str] = None,
+    )
         """
         Initialize the extractor.
-        
+
         Args:
-            input_file: Path to conversations.json
-            output_dir: Directory for output files
-            markdown: Generate markdown output (default: True)
-            json_dir: Generate individual JSON files (default: False)
-            json_file: Generate single JSON file with given name (default: None)
-            
+            input_file: Path to conversations.json. Optional — required
+                only when `extract_all()` is called. Per-conversation
+                methods (`process_conversation`, `generate_markdown`,
+                `save_markdown_file`) operate on dicts already in memory
+                and don't need a file on disk; this lets
+                `online_sync.render.OnlineRenderer` wrap the extractor
+                for live single-conversation rendering without writing
+                a placeholder input file.
+            output_dir: Directory for output files (required).
+            output_format: Output format(s) to generate.
+            json_format: 'single' (one consolidated file) or 'multiple'
+                (one file per conversation).
+            markdown_dir / json_dir / json_file: Path overrides that
+                bypass the default `md/` / `json/` subdirectory creation.
+            preserve_timestamps: Sync file mtimes to conversation
+                metadata.
+            per_turn_timestamps: Emit per-message ISO-8601 UTC italic
+                line beneath each role heading in markdown, and the
+                `timestamp` field in JSON. `None` reads the config layer
+                (built-in default: `True`).
+            gpt_metadata: Emit Custom GPT / per-turn model / plugin
+                signals (`gizmo_id`, `gizmo_type`, `models_used` in
+                frontmatter; per-turn `· model_slug`, `· plugin:<ns>`,
+                `· gpt:<id-or-name>`; mirrored to JSON). `None` reads
+                the config layer (built-in default: `True`).
+            gpt_names_xlsx: Path to `GPT_Names.xlsx` sidecar mapping
+                `gizmo_id → name`. When set and readable, frontmatter
+                gains `gpt_name:` and the per-turn `gpt:` segment shows
+                the resolved name. Missing / unreadable degrades to
+                id-only output. `None` reads the config layer
+                (built-in default: `None`, i.e. no resolution).
+            config_path: Explicit path to a YAML config file. The
+                layered loader falls back to
+                `$CHATGPT_EXTRACTOR_CONFIG`,
+                `./chatgpt_extractor.yaml`, and
+                `~/.config/chatgpt_extractor/config.yaml`.
+
         Creates:
             - Output directories (md/, json/) as needed
             - Schema tracker instance
             - Message processor instance
+            - Loads `_gpt_names` map from `gpt_names_xlsx` once
         """
     
     def extract_all(self) -> None
@@ -272,6 +316,58 @@ class SchemaEvolutionTracker:
         """Generate human-readable evolution report"""
 ```
 
+#### Module: `chatgpt_extractor.gpt_metadata`
+
+Pure functions for Custom GPT / per-turn model / plugin extraction, plus
+the `GPT_Names.xlsx` sidecar reader. All functions are stateless except
+`load_gpt_names_xlsx`, which does a single file read.
+
+```python
+def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]
+    """Return frontmatter additions: gizmo_id (Custom GPT only), gizmo_type,
+    models_used (deduped set of per-message model_slug values).
+
+    `snorlax` (project) conversations get `gizmo_type` but NOT `gizmo_id`
+    (it would duplicate `project_id`)."""
+
+def extract_msg_gpt_signals(api_msg: Dict[str, Any]) -> Dict[str, Optional[str]]
+    """Per-message signal triple — model_slug, gizmo_id, plugin_namespace.
+    Stashed on the per-message dict during process_messages so the renderer
+    can emit the per-turn suffix without re-walking the raw API shape."""
+
+def format_per_turn_suffix(
+    msg: Dict[str, Any],
+    conv_default_gizmo_id: Optional[str],
+    names_map: Optional[Dict[str, str]] = None,
+) -> str
+    """Build the dot-separated per-turn metadata suffix:
+    ` · <model_slug> · plugin:<ns> · gpt:<name-or-id>`. Returns empty when
+    nothing per-turn-specific to emit. `gpt:<id>` is suppressed for
+    project-id echoes (g-p-*) and replaced with the human-readable name
+    when `names_map` resolves it."""
+
+def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]
+    """Read a 2- or 3-column GPT_Names.xlsx → {gizmo_id: name}.
+    Silent-by-default: missing path / file / openpyxl / malformed
+    workbook all return {} with at most a single warning. Never raises."""
+```
+
+#### Module: `chatgpt_extractor.config`
+
+```python
+DEFAULTS: Dict[str, Any] = {
+    "per_turn_timestamps": True,
+    "gpt_metadata": True,
+    "gpt_names_xlsx": None,
+}
+
+def load_config(explicit_path: Optional[str] = None) -> Dict[str, Any]
+    """Merge built-in DEFAULTS with the first matching YAML file.
+    Search order: explicit_path → $CHATGPT_EXTRACTOR_CONFIG →
+    ./chatgpt_extractor.yaml → ~/.config/chatgpt_extractor/config.yaml.
+    Malformed YAML falls back silently."""
+```
+
 #### Class: ProgressTracker
 
 ```python
@@ -353,13 +449,17 @@ interface MessageContent {
 # YAML Frontmatter
 id: conversation-uuid
 title: "Conversation Title"
-created: 2024-01-01T12:00:00Z
-updated: 2024-01-02T15:30:00Z
-model: gpt-4
-project_id: g-p-uuid  # If applicable
+created: "2026-01-01T12:00:00Z"
+updated: "2026-01-02T15:30:00Z"
+model: gpt-5-2                          # legacy default_model_slug field
+gizmo_id: g-uefFoRnpX                   # Custom GPT only
+gizmo_type: gpt                         # 'gpt' | 'snorlax' (project) | absent
+gpt_name: "Summarizer 2: PDF Book…"     # resolved from GPT_Names.xlsx
+models_used: [gpt-4o, gpt-5-2]          # deduped per-message slugs
+project_id: g-p-uuid                    # only for snorlax convs
 starred: false
 archived: false
-chat_url: https://chatgpt.com/c/conversation-uuid
+chat_url: "https://chatgpt.com/c/conversation-uuid"
 ---
 
 # Conversation Title
@@ -368,9 +468,11 @@ chat_url: https://chatgpt.com/c/conversation-uuid
 Custom instructions if any
 
 ## User
+*2026-01-01T12:00:01.123456Z*
 User message with [File: document.pdf] indicators
 
 ## Assistant
+*2026-01-01T12:00:02.234567Z · gpt-4o · plugin:youtube_api_widenex_com · gpt:Unorthodox Humor XI*
 Response with ```python
 code blocks
 ```
@@ -426,16 +528,48 @@ These content types are always excluded:
 ```bash
 python -m chatgpt_extractor [input_file] [output_dir] [options]
 
-# Options:
---json-dir             Generate individual JSON files
---json-file FILE       Generate single JSON file
---no-markdown          Skip markdown generation
---help                 Show help message
+# Format selection
+--output-format {markdown,json,both}    # default: markdown
+--json-format {single,multiple}          # default: multiple
+--markdown-dir PATH                      # bypass md/ subdir
+--json-dir PATH                          # bypass json/ subdir
+--json-file PATH                         # override single-JSON path
+
+# Per-message metadata
+--per-turn-timestamps / --no-per-turn-timestamps   # default from config (True)
+--gpt-metadata / --no-gpt-metadata                  # default from config (True)
+--gpt-names-xlsx PATH                               # GPT_Names.xlsx sidecar path
+
+# File timestamps + config + diagnostics
+--preserve-timestamps {true,false}       # sync file mtimes (default: true)
+--config PATH                            # explicit layered-config path
+--analyze-failures                       # run failure analysis if errors
+--debug                                  # enable debug logging
+--help                                   # show help
 
 # Defaults:
 input_file: data/raw/conversations.json
 output_dir: data/output
 ```
+
+### Layered YAML Config
+
+The extractor reads YAML config from the first existing of:
+
+1. `--config <path>` CLI argument
+2. `$CHATGPT_EXTRACTOR_CONFIG` env var
+3. `./chatgpt_extractor.yaml`
+4. `~/.config/chatgpt_extractor/config.yaml`
+
+```yaml
+# Recognised keys (built-in defaults shown)
+per_turn_timestamps: true
+gpt_metadata: true
+gpt_names_xlsx: null          # set to a path string to enable name resolution
+```
+
+Malformed YAML falls back silently to built-in defaults — config errors
+never block the extractor.
 
 ### Constants and Limits
 
