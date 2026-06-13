@@ -182,7 +182,17 @@ def format_per_turn_suffix(
         parts.append(f"plugin:{plugin_ns}")
 
     msg_gizmo = msg.get("gizmo_id")
-    if msg_gizmo and msg_gizmo != conv_default_gizmo_id:
+    # Per-message metadata stores the conversation's gizmo context, which
+    # for a project conversation is the *project* id (g-p-*). That belongs
+    # in ``project_id`` frontmatter, not as a ``gpt:`` per-turn segment —
+    # skipping those keeps the per-turn line about actual Custom GPT
+    # @mentions only. Real @mentions carry a Custom GPT id (g-XXXX) and
+    # are still emitted.
+    if (
+        msg_gizmo
+        and msg_gizmo != conv_default_gizmo_id
+        and not msg_gizmo.startswith("g-p-")
+    ):
         # Substitute the human-readable name when available; fall back to
         # the raw id so the @mention signal is preserved even when the
         # sidecar hasn't been populated yet.
