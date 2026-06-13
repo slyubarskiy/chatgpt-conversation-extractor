@@ -447,3 +447,158 @@ def test_constructor_arg_overrides_config_file(tmp_path):
     cfg.write_text(yaml.safe_dump({"gpt_metadata": False}), encoding="utf-8")
     ex = _extractor(tmp_path, gpt_metadata=True, config_path=str(cfg))
     assert ex.gpt_metadata is True
+
+
+# --------------------------------------------------------------------------- #
+# load_gpt_names_xlsx + integration with extractor
+# --------------------------------------------------------------------------- #
+
+def _write_gpt_names_xlsx(path, rows):
+    """Helper: write a 2- or 3-column GPT_Names.xlsx matching the sidecar shape."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.cell(row=1, column=1, value="Gizmo ID")
+    ws.cell(row=1, column=2, value="GPT Name")
+    ws.cell(row=1, column=3, value="Previous Name (review)")
+    for i, row in enumerate(rows, start=2):
+        for j, value in enumerate(row, start=1):
+            ws.cell(row=i, column=j, value=value)
+    wb.save(path)
+
+
+def test_load_gpt_names_xlsx_returns_dict(tmp_path):
+    """Happy-path read of a 3-column xlsx returns {id: name} with whitespace stripped."""
+    from chatgpt_extractor.gpt_metadata import load_gpt_names_xlsx
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [
+        ("g-uefFoRnpX", "Summarizer 2", ""),
+        ("g-dZUgwxUeJ", "  Unorthodox Humor XI  ", "Unorthodox Humor"),
+        ("g-other", "Trip Planner", None),
+    ])
+    names = load_gpt_names_xlsx(xlsx)
+    assert names == {
+        "g-uefFoRnpX": "Summarizer 2",
+        "g-dZUgwxUeJ": "Unorthodox Humor XI",  # whitespace stripped
+        "g-other": "Trip Planner",
+    }
+
+
+def test_load_gpt_names_xlsx_missing_file_is_silent_noop(tmp_path):
+    """Missing file / None path → empty dict, no exception."""
+    from chatgpt_extractor.gpt_metadata import load_gpt_names_xlsx
+    assert load_gpt_names_xlsx(None) == {}
+    assert load_gpt_names_xlsx(tmp_path / "nope.xlsx") == {}
+
+
+def test_load_gpt_names_xlsx_corrupt_file_does_not_crash(tmp_path, caplog):
+    """Garbage bytes in xlsx → empty dict + WARNING log, never raises."""
+    import logging
+    from chatgpt_extractor.gpt_metadata import load_gpt_names_xlsx
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    xlsx.write_bytes(b"this is not a real xlsx file")
+    with caplog.at_level(logging.WARNING, logger="chatgpt_extractor.gpt_metadata"):
+        names = load_gpt_names_xlsx(xlsx)
+    assert names == {}
+    assert any("could not be read" in rec.message for rec in caplog.records)
+
+
+def test_extract_metadata_resolves_gpt_name_from_xlsx(tmp_path, custom_gpt_conv_fixture):
+    """Integration: extractor with gpt_names_xlsx populates metadata['gpt_name']."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [("g-uefFoRnpX", "Summarizer 2", "")])
+    ex = _extractor(tmp_path, gpt_names_xlsx=str(xlsx))
+    metadata, _msgs, _json = ex.process_conversation(custom_gpt_conv_fixture)
+    assert metadata["gizmo_id"] == "g-uefFoRnpX"
+    assert metadata["gpt_name"] == "Summarizer 2"
+
+
+def test_extract_metadata_no_gpt_name_when_xlsx_missing_id(tmp_path, custom_gpt_conv_fixture):
+    """When the sidecar has rows but none matches → no gpt_name field at all."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [("g-otherUnrelated", "Some Other GPT", "")])
+    ex = _extractor(tmp_path, gpt_names_xlsx=str(xlsx))
+    metadata, _msgs, _json = ex.process_conversation(custom_gpt_conv_fixture)
+    assert metadata["gizmo_id"] == "g-uefFoRnpX"
+    assert "gpt_name" not in metadata
+
+
+def test_per_turn_suffix_substitutes_name_when_available(tmp_path):
+    """@mention case + populated xlsx → per-turn line shows gpt:<Pretty Name>."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [("g-dZUgwxUeJ", "Unorthodox Humor XI", "")])
+    conv = {
+        "id": "x", "conversation_id": "x", "title": "@mention",
+        "create_time": 1.0, "update_time": 2.0,
+        "default_model_slug": "gpt-5", "gizmo_id": "g-p-PROJECT",
+        "gizmo_type": "snorlax", "conversation_template_id": "g-p-PROJECT",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text", "parts": ["@gpt-x"]},
+                               "metadata": {}}},
+            "a1": {"id": "a1", "parent": "u1", "children": [],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 2.0,
+                               "content": {"content_type": "text", "parts": ["sure"]},
+                               "metadata": {"model_slug": "gpt-5",
+                                            "gizmo_id": "g-dZUgwxUeJ"}}},
+        },
+    }
+    ex = _extractor(tmp_path, gpt_names_xlsx=str(xlsx))
+    metadata, msgs, _json = ex.process_conversation(conv)
+    md = ex.generate_markdown(metadata, msgs)
+    assert "gpt:Unorthodox Humor XI" in md
+    assert "gpt:g-dZUgwxUeJ" not in md  # raw id not emitted when name known
+
+
+def test_per_turn_suffix_falls_back_to_id_when_unknown(tmp_path):
+    """@mention case + empty xlsx → per-turn line keeps gpt:<g-XXX> raw id."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [])  # header only, no rows
+    conv = {
+        "id": "x", "conversation_id": "x", "title": "@mention",
+        "create_time": 1.0, "update_time": 2.0,
+        "default_model_slug": "gpt-5", "gizmo_id": "g-p-PROJECT",
+        "gizmo_type": "snorlax", "conversation_template_id": "g-p-PROJECT",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text", "parts": ["@gpt-x"]},
+                               "metadata": {}}},
+            "a1": {"id": "a1", "parent": "u1", "children": [],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 2.0,
+                               "content": {"content_type": "text", "parts": ["sure"]},
+                               "metadata": {"model_slug": "gpt-5",
+                                            "gizmo_id": "g-dZUgwxUeJ"}}},
+        },
+    }
+    ex = _extractor(tmp_path, gpt_names_xlsx=str(xlsx))
+    metadata, msgs, _json = ex.process_conversation(conv)
+    md = ex.generate_markdown(metadata, msgs)
+    assert "gpt:g-dZUgwxUeJ" in md
+
+
+def test_json_output_includes_gpt_name(tmp_path, custom_gpt_conv_fixture):
+    """JSON envelope mirrors the new gpt_name field when set."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [("g-uefFoRnpX", "Summarizer 2", "")])
+    ex = _extractor(tmp_path, gpt_names_xlsx=str(xlsx))
+    _metadata, _msgs, json_data = ex.process_conversation(custom_gpt_conv_fixture)
+    assert json_data["gpt_name"] == "Summarizer 2"
+
+
+def test_gpt_names_xlsx_via_config_file(tmp_path, custom_gpt_conv_fixture):
+    """Config file value is honoured when no ctor arg supplied."""
+    xlsx = tmp_path / "GPT_Names.xlsx"
+    _write_gpt_names_xlsx(xlsx, [("g-uefFoRnpX", "Summarizer 2", "")])
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(yaml.safe_dump({"gpt_names_xlsx": str(xlsx)}), encoding="utf-8")
+    ex = _extractor(tmp_path, gpt_names_xlsx=None, config_path=str(cfg))
+    metadata, _msgs, _json = ex.process_conversation(custom_gpt_conv_fixture)
+    assert metadata["gpt_name"] == "Summarizer 2"

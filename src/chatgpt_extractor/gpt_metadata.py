@@ -26,15 +26,23 @@ spanning 2023-2026):
   ``plugin_id`` / status. Only the namespace is included per-turn (the
   human-meaningful piece).
 
-Pure functions only — no I/O, no state. The extractor wires the offline
-batch path; ``online_sync/render.py`` wraps ``ConversationExtractorV2``
-so the live sync inherits the same behaviour without importing this
-module directly.
+The ``load_gpt_names_xlsx`` helper is the one exception to "pure functions
+only" — it reads a 2- or 3-column ``GPT_Names.xlsx`` sidecar produced by
+``online_sync.gizmo_names_sync`` to map ``gizmo_id`` → human-readable name.
+The extractor calls it once at construct time, and the resulting map is
+threaded into frontmatter (``gpt_name:``) and the per-turn suffix
+(``gpt:<Pretty Name>`` substitution). A missing or malformed sidecar
+silently degrades to "id only" — the extractor must never crash on a bad
+sidecar file.
 """
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,6 +136,7 @@ def extract_msg_gpt_signals(api_msg: Dict[str, Any]) -> Dict[str, Optional[str]]
 def format_per_turn_suffix(
     msg: Dict[str, Any],
     conv_default_gizmo_id: Optional[str],
+    names_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """Build the dot-separated per-turn metadata suffix.
 
@@ -135,12 +144,17 @@ def format_per_turn_suffix(
     leading separator is included by the caller — this function returns
     an empty string when there's nothing to append)::
 
-        " · <model_slug> · plugin:<namespace> · gpt:<id>"
+        " · <model_slug> · plugin:<namespace> · gpt:<name-or-id>"
 
-    The ``gpt:<id>`` segment fires only when the per-message ``gizmo_id``
+    The ``gpt:`` segment fires only when the per-message ``gizmo_id``
     differs from the conversation default — the @mention case. Suppressing
     it when they match prevents noisy repetition on every turn of a
     Custom-GPT conversation.
+
+    When ``names_map`` resolves the per-message ``gizmo_id`` to a human-
+    readable name (e.g. "Trip Planner"), that name is substituted into the
+    suffix in place of the opaque id. Unresolved ids fall back to the raw
+    ``g-XXXX`` form so the signal is never lost.
 
     Args:
         msg: The per-message dict assembled by ``process_messages``,
@@ -148,6 +162,10 @@ def format_per_turn_suffix(
              ``plugin_namespace`` keys (any of which may be ``None``).
         conv_default_gizmo_id: The conversation-level ``gizmo_id`` (or
              ``None`` for default ChatGPT conversations).
+        names_map: Optional ``{gizmo_id: name}`` lookup table, typically
+             ``ConversationExtractorV2._gpt_names`` loaded from
+             ``GPT_Names.xlsx`` via ``load_gpt_names_xlsx``. ``None`` or
+             an empty dict means "id-only", matching pre-feature output.
 
     Returns:
         The suffix string starting with `` · ``, or empty if there's
@@ -165,8 +183,75 @@ def format_per_turn_suffix(
 
     msg_gizmo = msg.get("gizmo_id")
     if msg_gizmo and msg_gizmo != conv_default_gizmo_id:
-        parts.append(f"gpt:{msg_gizmo}")
+        # Substitute the human-readable name when available; fall back to
+        # the raw id so the @mention signal is preserved even when the
+        # sidecar hasn't been populated yet.
+        label = (names_map or {}).get(msg_gizmo, msg_gizmo)
+        parts.append(f"gpt:{label}")
 
     if not parts:
         return ""
     return " · " + " · ".join(parts)
+
+
+def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]:
+    """Load ``GPT_Names.xlsx`` and return ``{gizmo_id: name}``.
+
+    Accepts the same xlsx format ``online_sync.gizmo_names_sync.sync_gizmos``
+    writes: header row in row 1, ``Gizmo ID`` in column 1, ``GPT Name``
+    in column 2, optional ``Previous Name (review)`` in column 3 (ignored
+    here). Whitespace is stripped from both columns.
+
+    Designed to **never raise** — the extractor must keep running on a
+    bad sidecar. Possible failure modes all degrade to "no name
+    resolution available" with a single WARNING log entry:
+
+    - ``path`` is ``None`` or the file does not exist → empty dict, no log.
+    - File exists but ``openpyxl`` is not installed → empty dict, debug log
+      (openpyxl is a transitive dep via the writer side; without it the
+      reader simply skips name resolution).
+    - File is corrupt / not an xlsx / has unexpected shape → empty dict,
+      WARNING log.
+
+    Args:
+        path: Path to the xlsx file, or ``None``.
+
+    Returns:
+        ``{gizmo_id: name}``. Empty when the sidecar is missing,
+        unreadable, or contains no usable rows.
+    """
+    if path is None:
+        return {}
+    p = Path(path)
+    if not p.is_file():
+        return {}
+    try:
+        # Lazy import — openpyxl is not a hard runtime requirement when
+        # the user opts out of name resolution by not providing a path.
+        import openpyxl
+    except ImportError:
+        logger.debug(
+            "openpyxl not installed; skipping GPT name resolution from %s", p
+        )
+        return {}
+    try:
+        wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
+        ws = wb.active
+        names: Dict[str, str] = {}
+        # Skip the header row; tolerate trailing blank rows that openpyxl
+        # may emit in read_only mode.
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or row[0] is None:
+                continue
+            gid = str(row[0]).strip() if row[0] is not None else ""
+            name = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+            if gid and name:
+                names[gid] = name
+        wb.close()
+    except Exception as exc:  # noqa: BLE001 — sidecar must never break extractor
+        logger.warning(
+            "GPT_Names.xlsx at %s could not be read (%s); proceeding without "
+            "name resolution", p, exc,
+        )
+        return {}
+    return names

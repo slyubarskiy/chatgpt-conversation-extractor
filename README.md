@@ -62,6 +62,9 @@ python -m chatgpt_extractor --preserve-timestamps false
 # Suppress Custom GPT / per-turn model / plugin metadata (revert to pre-feature output)
 python -m chatgpt_extractor --no-gpt-metadata
 
+# Resolve Custom GPT names via a sidecar xlsx (id → human-readable name)
+python -m chatgpt_extractor --gpt-names-xlsx /path/to/GPT_Names.xlsx
+
 # Run failure analysis if conversion issues occurred
 python -m chatgpt_extractor --analyze-failures
 
