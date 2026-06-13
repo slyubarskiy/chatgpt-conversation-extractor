@@ -24,27 +24,27 @@ python -m chatgpt_extractor data/raw/conversations.json data/output
 # 4. Find your files in data/output/md/
 
 # Optional: Extract to JSON format as well
-python -m chatgpt_extractor data/raw/conversations.json data/output --json-dir
+python -m chatgpt_extractor data/raw/conversations.json data/output --output-format both
 ```
 
 ## Installation
 
 ### System Requirements
 
-- **Python**: 3.8 or higher
+- **Python**: 3.9 or higher (3.9 / 3.10 / 3.11 / 3.12 all tested in CI)
 - **Memory**: 2GB RAM (for 500MB JSON files)
 - **Disk Space**: 2x the size of your conversations.json
 - **OS**: Windows, macOS, Linux
 
-### Step 1: Clone or Download
+### Step 1: Clone or Install
 
 ```bash
 # Option A: Clone repository
-git clone https://github.com/your-repo/chatgpt-extractor.git
-cd chatgpt-extractor
+git clone https://github.com/slyubarskiy/chatgpt-conversation-extractor.git
+cd chatgpt-conversation-extractor
 
-# Option B: Download files
-# Download extract_conversations_v2.py to a folder
+# Option B: Install as a package (editable for local development)
+pip install -e .
 ```
 
 ### Step 2: Install Dependencies
@@ -127,13 +127,20 @@ python -m chatgpt_extractor ~/Downloads/conversations.json ~/Documents/ChatGPT
 python -m chatgpt_extractor conversations.json output/
 
 # Both markdown and JSON (individual files)
-python -m chatgpt_extractor conversations.json output/ --json-dir
+python -m chatgpt_extractor conversations.json output/ --output-format both
 
 # Single consolidated JSON file
-python -m chatgpt_extractor conversations.json output/ --json-file all_conversations.json
+python -m chatgpt_extractor conversations.json output/ --output-format json \
+    --json-format single --json-file all_conversations.json
 
-# JSON only, no markdown
-python -m chatgpt_extractor conversations.json output/ --no-markdown --json-dir
+# JSON only (multiple files)
+python -m chatgpt_extractor conversations.json output/ --output-format json
+
+# Suppress per-message Custom GPT / model / plugin signals (legacy shape)
+python -m chatgpt_extractor conversations.json output/ --no-gpt-metadata
+
+# Resolve gizmo_id -> human-readable name via a sidecar xlsx
+python -m chatgpt_extractor conversations.json output/ --gpt-names-xlsx /path/GPT_Names.xlsx
 
 # View help for all options
 python -m chatgpt_extractor --help
@@ -142,26 +149,28 @@ python -m chatgpt_extractor --help
 ### What to Expect
 
 ```
-ChatGPT Conversation Extractor v2.0
-Loading conversations from data/raw/conversations.json...
-Found 6885 conversations to process
-Output directory: data/output_md
+Starting ChatGPT Conversation Extractor v3.1
+Loading conversations from data/raw/conversations.json
+Found 8248 conversations to process
+Output directory: data/output
+Markdown output: data/output/md
 
-  Progress: 500/6885 (7.3%) | Failed: 0 | Rate: 75.3/s | ETA: 1.4m
-  Progress: 1000/6885 (14.5%) | Failed: 0 | Rate: 76.6/s | ETA: 1.3m
+  Progress: 500/8248 (6.1%) | Failed: 0 | Rate: 75.3/s | ETA: 1.7m
+  Progress: 1000/8248 (12.1%) | Failed: 0 | Rate: 76.6/s | ETA: 1.6m
   ...
-  Progress: 6885/6885 (100.0%) | Failed: 0 | Rate: 65.8/s | ETA: 0s
+  Progress: 8248/8248 (100.0%) | Failed: 0 | Rate: 65.8/s | ETA: 0s
 
 ============================================================
 EXTRACTION COMPLETE!
 ============================================================
-  Total conversations: 6885
-  Successfully processed: 6885
+  Total conversations: 8248
+  Successfully processed: 8248
   Failed: 0
   Success rate: 100.0%
-  Time elapsed: 104.7s
+  Markdown files created: 8248
+  Time elapsed: 125.3s
   Processing rate: 65.8 conv/s
-  Output directory: data/output_md
+  Output directory: data/output
 ```
 
 ## Advanced Usage
@@ -172,7 +181,7 @@ For very large exports (>1GB):
 
 ```bash
 # Monitor memory usage
-python extract_conversations_v2.py large_export.json output/ 2>&1 | tee extraction.log
+python -m chatgpt_extractor large_export.json output/ 2>&1 | tee extraction.log
 ```
 
 ### Batch Processing
@@ -180,21 +189,41 @@ python extract_conversations_v2.py large_export.json output/ 2>&1 | tee extracti
 For multiple export files:
 
 ```bash
-# Process multiple exports
 for file in exports/*.json; do
     output_dir="output/$(basename $file .json)"
-    python extract_conversations_v2.py "$file" "$output_dir"
+    python -m chatgpt_extractor "$file" "$output_dir"
 done
 ```
 
-### Filtering by Date
+### Custom GPT name resolution
 
-To extract only recent conversations (requires modification):
+The extractor itself doesn't fetch names from the ChatGPT API. Names are
+populated by the live-sync companion (`online-sync gpt-names
+--backfill-from-conversations-json …`) into a `GPT_Names.xlsx` sidecar
+which the extractor reads. Point at the sidecar via:
 
-```python
-# In process_conversation(), add:
-if conv.get('update_time', 0) < cutoff_timestamp:
-    return  # Skip old conversations
+```bash
+python -m chatgpt_extractor conversations.json output/ \
+    --gpt-names-xlsx /mnt/c/chatgpt_history/GPT_Names.xlsx
+```
+
+Missing / unreadable sidecar silently degrades to id-only output —
+the extractor will never crash on a bad sidecar.
+
+### Configuration file
+
+Defaults can be set persistently in a YAML config. Search order:
+
+1. `--config <path>` CLI argument
+2. `$CHATGPT_EXTRACTOR_CONFIG` environment variable
+3. `./chatgpt_extractor.yaml` in the current working directory
+4. `~/.config/chatgpt_extractor/config.yaml`
+
+```yaml
+# ~/.config/chatgpt_extractor/config.yaml
+per_turn_timestamps: true
+gpt_metadata: true
+gpt_names_xlsx: /mnt/c/chatgpt_history/GPT_Names.xlsx
 ```
 
 ## Understanding the Output
@@ -203,22 +232,23 @@ if conv.get('update_time', 0) < cutoff_timestamp:
 
 ```
 data/output/
-├── md/                           # Markdown output (default)
+├── md/                                 # Markdown output (default)
 │   ├── Regular Conversation 1.md
 │   ├── Regular Conversation 2.md
-│   ├── Regular Conversation (2).md    # Duplicate titles numbered
-│   └── project_a3e43bec/             # Project folders
+│   ├── Regular Conversation (2).md     # duplicate titles get numbered
+│   └── g-p-<project-id>/               # project subfolders (raw id form)
 │       ├── Project Conv 1.md
 │       └── Project Conv 2.md
-├── json/                         # JSON output (if --json-dir)
+├── json/                               # JSON output (with --output-format json|both)
 │   ├── Regular Conversation 1.json
 │   ├── Regular Conversation 2.json
-│   └── project_a3e43bec/
+│   └── g-p-<project-id>/
 │       ├── Project Conv 1.json
 │       └── Project Conv 2.json
-├── all_conversations.json        # Single file (if --json-file)
-├── schema_evolution.log          # Format tracking
-└── conversion_log.log            # Only if failures
+├── all_conversations.json              # only with --json-format single
+└── logs/
+    ├── schema_evolution.log            # format tracking (if enabled)
+    └── conversion_log.log              # only if failures
 ```
 
 ### Output File Formats
@@ -229,15 +259,20 @@ Each conversation becomes a markdown file with:
 
 ```markdown
 ---
-# Metadata in YAML format
+# YAML frontmatter
 id: 68c2d4c7-9cac-8332-b27d-1b666ebddb61
 title: "Conversation Title"
-created: 2024-01-15T10:30:00Z
-updated: 2024-01-15T11:45:00Z
-model: gpt-4
+created: "2024-01-15T10:30:00Z"
+updated: "2024-01-15T11:45:00Z"
+model: gpt-5-2                                # conv-level default_model_slug
+gizmo_id: g-uefFoRnpX                         # Custom GPT only (Custom GPT convs)
+gizmo_type: gpt                               # 'gpt' (Custom GPT) | 'snorlax' (project)
+gpt_name: "Summarizer 2: PDF Book…"           # if resolved from GPT_Names.xlsx
+models_used: [gpt-4o, gpt-5-2]                # deduped per-message model_slug
+project_id: g-p-685bb57d8cec8191985f702d…     # only for project (snorlax) convs
 starred: false
 archived: false
-chat_url: https://chatgpt.com/c/68c2d4c7-9cac-8332-b27d-1b666ebddb61
+chat_url: "https://chatgpt.com/c/68c2d4c7-9cac-8332-b27d-1b666ebddb61"
 ---
 
 # Conversation Title
@@ -246,9 +281,11 @@ chat_url: https://chatgpt.com/c/68c2d4c7-9cac-8332-b27d-1b666ebddb61
 Your custom instructions appear here
 
 ## User
+*2024-01-15T10:30:15.123456Z*
 User's message with any [File: document.pdf] attachments noted
 
 ## Assistant
+*2024-01-15T10:30:16.234567Z · gpt-4o*
 ChatGPT's response with:
 - Formatted text
 - ```python
@@ -264,29 +301,39 @@ ChatGPT's response with:
 - https://searched-site2.com
 ```
 
+Notes on the per-turn italic line:
+- Always emitted for non-system messages when the source carries
+  `create_time` (the conversation export always does for messages from
+  ChatGPT). Suppress with `--no-per-turn-timestamps`.
+- Appends `· model_slug` when the assistant turn recorded one.
+- Appends `· plugin:<namespace>` for tool invocations.
+- Appends `· gpt:<id>` (or `gpt:<Pretty Name>` when `GPT_Names.xlsx`
+  has a row) only when the per-message gizmo differs from the
+  conversation default — the @mention pattern.
+
 #### JSON Format
 
-Each JSON file contains:
+Each JSON file is a single conversation object at the top level (not
+nested under a "metadata" key — historical):
 
 ```json
 {
-  "metadata": {
-    "id": "68c2d4c7-9cac-8332-b27d-1b666ebddb61",
-    "title": "Conversation Title",
-    "created": "2024-01-15T10:30:00Z",
-    "updated": "2024-01-15T11:45:00Z",
-    "model": "gpt-4",
-    "total_messages": 5,
-    "code_messages": 2,
-    "starred": false,
-    "archived": false
-  },
+  "id": "68c2d4c7-9cac-8332-b27d-1b666ebddb61",
+  "title": "Conversation Title",
+  "created": "2024-01-15T10:30:00Z",
+  "updated": "2024-01-15T11:45:00Z",
+  "model": "gpt-5-2",
+  "gizmo_id": "g-uefFoRnpX",
+  "gizmo_type": "gpt",
+  "gpt_name": "Summarizer 2: PDF Book…",
+  "models_used": ["gpt-4o", "gpt-5-2"],
+  "project_id": null,
+  "total_messages": 5,
+  "code_messages": 2,
+  "starred": false,
+  "archived": false,
+  "chat_url": "https://chatgpt.com/c/<id>",
   "messages": [
-    {
-      "role": "system",
-      "content": "Your custom instructions",
-      "timestamp": "2024-01-15T10:30:00Z"
-    },
     {
       "role": "user",
       "content": "User message",
@@ -297,8 +344,11 @@ Each JSON file contains:
       "role": "assistant",
       "content": "Assistant response",
       "timestamp": "2024-01-15T10:32:00Z",
+      "model_slug": "gpt-4o",
+      "gizmo_id": "g-uefFoRnpX",
+      "plugin_namespace": "youtube_api_widenex_com",
       "citations": [...],
-      "urls": [...]
+      "web_urls": [...]
     }
   ]
 }
@@ -346,21 +396,21 @@ pip install pyyaml
 ls -la data/raw/conversations.json
 
 # Or specify full path
-python extract_conversations_v2.py /full/path/to/conversations.json output/
+python -m chatgpt_extractor /full/path/to/conversations.json output/
 ```
 
 #### 3. Memory Error with Large Files
 ```bash
 # Monitor memory
-python -u extract_conversations_v2.py 2>&1 | tee extraction.log
+python -u -m chatgpt_extractor 2>&1 | tee extraction.log
 
 # Consider splitting large exports or increasing system memory
 ```
 
 #### 4. Permission Denied
 ```bash
-# Ensure write permissions
-chmod +w data/output_md
+# Ensure write permissions on the output dir
+chmod -R u+w data/output
 # Or run with appropriate permissions
 ```
 
@@ -434,7 +484,18 @@ When reporting issues, include:
 
 ## Version History
 
-### v2.0 (Current)
+### v3.1 (Current)
+- Default output directory: `data/output` (markdown → `data/output/md/`)
+- Multi-format output (`--output-format markdown|json|both`)
+- JSON format selection (`--json-format single|multiple`)
+- Per-message timestamps in output (`--per-turn-timestamps`, default on)
+- Custom GPT / per-turn model / plugin signals
+  (`--gpt-metadata`, default on; companion `--gpt-names-xlsx` sidecar
+  resolves opaque `gizmo_id` to human-readable name)
+- Layered YAML config (`--config`, plus search order based on env +
+  cwd + home)
+
+### v2.0
 - Schema evolution tracking
 - Comprehensive error logging
 - 100% success rate with fixes
