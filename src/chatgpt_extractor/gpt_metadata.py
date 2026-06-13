@@ -230,9 +230,7 @@ def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]:
         # the user opts out of name resolution by not providing a path.
         import openpyxl
     except ImportError:
-        logger.debug(
-            "openpyxl not installed; skipping GPT name resolution from %s", p
-        )
+        logger.debug("openpyxl not installed; skipping GPT name resolution from %s", p)
         return {}
     try:
         wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
@@ -251,7 +249,9 @@ def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]:
     except Exception as exc:  # noqa: BLE001 — sidecar must never break extractor
         logger.warning(
             "GPT_Names.xlsx at %s could not be read (%s); proceeding without "
-            "name resolution", p, exc,
+            "name resolution",
+            p,
+            exc,
         )
         return {}
     return names

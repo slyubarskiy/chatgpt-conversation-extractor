@@ -189,7 +189,7 @@ Migration note for v3.1:
         default=None,
         metavar="PATH",
         help=(
-            "Path to GPT_Names.xlsx mapping gizmo_id → name "
+            "Path to GPT_Names.xlsx mapping gizmo_id -> name "
             "(populated by `online-sync gpt-names` in the live-sync "
             "repo). Default from config file (default: no resolution)."
         ),

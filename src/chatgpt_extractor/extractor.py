@@ -123,9 +123,13 @@ class ConversationExtractorV2:
         # True default). Loaded once and shared across all flags so a
         # single config-file read covers all knobs.
         _cfg = None
-        if (per_turn_timestamps is None or gpt_metadata is None
-                or gpt_names_xlsx is None):
+        if (
+            per_turn_timestamps is None
+            or gpt_metadata is None
+            or gpt_names_xlsx is None
+        ):
             from .config import load_config
+
             _cfg = load_config(config_path)
         if per_turn_timestamps is None:
             per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
@@ -141,6 +145,7 @@ class ConversationExtractorV2:
         # reads (extract_metadata + generate_markdown) reuse the same
         # dict. Missing / bad sidecar → empty dict, no crash.
         from .gpt_metadata import load_gpt_names_xlsx
+
         self._gpt_names: Dict[str, str] = load_gpt_names_xlsx(gpt_names_xlsx)
 
         # Determine output paths based on configuration
@@ -456,6 +461,7 @@ class ConversationExtractorV2:
         # online_sync inherits via OnlineRenderer wrapping this class.
         if self.gpt_metadata:
             from .gpt_metadata import extract_conv_gpt_meta
+
             metadata.update(extract_conv_gpt_meta(conv))
             # Resolve gizmo_id → human-readable name when the sidecar map
             # has it. Lookups against an empty dict are O(1) no-ops, so we
@@ -719,6 +725,7 @@ class ConversationExtractorV2:
                     # cost is trivial; the render-time flag decides
                     # whether they reach the markdown / JSON output.
                     from .gpt_metadata import extract_msg_gpt_signals
+
                     for k, v in extract_msg_gpt_signals(msg).items():
                         if v is not None:
                             msg_data[k] = v
@@ -753,6 +760,7 @@ class ConversationExtractorV2:
                         if (ct := msg.get("create_time")) is not None:
                             tool_msg_data["create_time"] = ct
                         from .gpt_metadata import extract_msg_gpt_signals
+
                         for k, v in extract_msg_gpt_signals(msg).items():
                             if v is not None:
                                 tool_msg_data[k] = v
@@ -892,8 +900,10 @@ class ConversationExtractorV2:
                 suffix = ""
                 if self.gpt_metadata:
                     from .gpt_metadata import format_per_turn_suffix
+
                     suffix = format_per_turn_suffix(
-                        msg, metadata.get("gizmo_id"),
+                        msg,
+                        metadata.get("gizmo_id"),
                         names_map=self._gpt_names,
                     )
                 lines.append(f"*{self._format_per_turn_ts(ct)}{suffix}*")
