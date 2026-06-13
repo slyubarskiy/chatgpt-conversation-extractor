@@ -165,6 +165,21 @@ Migration note for v3.1:
         ),
     )
 
+    # GPT / per-turn-model / plugin metadata in output. Frontmatter gains
+    # gizmo_id, gizmo_type, models_used; per-turn italic line gains
+    # · model_slug · plugin:<ns> · gpt:<id>. Same config-layered default
+    # as per-turn-timestamps.
+    parser.add_argument(
+        "--gpt-metadata",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Emit Custom GPT / per-turn model / plugin signals (default "
+            "from config file, which defaults to true). Pass "
+            "--no-gpt-metadata to match the pre-feature output."
+        ),
+    )
+
     parser.add_argument(
         "--config",
         dest="config_path",
@@ -220,6 +235,7 @@ Migration note for v3.1:
             json_file=args.json_file,
             preserve_timestamps=args.preserve_timestamps,
             per_turn_timestamps=args.per_turn_timestamps,
+            gpt_metadata=args.gpt_metadata,
             config_path=args.config_path,
         )
         extractor.extract_all()

@@ -19,6 +19,14 @@ Currently recognised keys:
   JSON output. When ``False``, output matches the pre-config behaviour
   (frontmatter conversation-level timestamps only).
 
+- ``gpt_metadata`` (bool, default ``True``) — emit Custom GPT / per-turn
+  model / plugin signals (``gizmo_id``, ``gizmo_type``, ``models_used`` in
+  frontmatter; ``· model_slug``, ``· plugin:<ns>``, ``· gpt:<id>``
+  appended to the per-turn timestamp line in markdown; ``model_slug`` /
+  ``gizmo_id`` / ``plugin_namespace`` fields in JSON output). When
+  ``False``, output matches the pre-config behaviour (only the
+  conversation-level ``model:`` from ``default_model_slug``).
+
 A malformed YAML file falls back silently to the built-in defaults — config
 file errors should never block the extractor from running.
 """
@@ -33,6 +41,7 @@ import yaml
 
 DEFAULTS: Dict[str, Any] = {
     "per_turn_timestamps": True,
+    "gpt_metadata": True,
 }
 
 
