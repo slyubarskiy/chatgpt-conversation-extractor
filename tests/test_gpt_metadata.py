@@ -454,8 +454,14 @@ def test_constructor_arg_overrides_config_file(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def _write_gpt_names_xlsx(path, rows):
-    """Helper: write a 2- or 3-column GPT_Names.xlsx matching the sidecar shape."""
-    import openpyxl
+    """Helper: write a 2- or 3-column GPT_Names.xlsx matching the sidecar shape.
+
+    Skips the test if openpyxl is not installed — the public extractor
+    doesn't list openpyxl as a hard dependency (only the private online-sync
+    package + the GPT_Names.xlsx reader, both of which fall back silently
+    when it's missing). CI environments without openpyxl skip cleanly.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.cell(row=1, column=1, value="Gizmo ID")
@@ -492,7 +498,13 @@ def test_load_gpt_names_xlsx_missing_file_is_silent_noop(tmp_path):
 
 
 def test_load_gpt_names_xlsx_corrupt_file_does_not_crash(tmp_path, caplog):
-    """Garbage bytes in xlsx → empty dict + WARNING log, never raises."""
+    """Garbage bytes in xlsx → empty dict + WARNING log, never raises.
+
+    Requires openpyxl: without it the loader takes the ImportError branch
+    (returns empty dict + debug log) before ever touching the file, so the
+    WARNING assertion can't run. CI without openpyxl just skips.
+    """
+    pytest.importorskip("openpyxl")
     import logging
     from chatgpt_extractor.gpt_metadata import load_gpt_names_xlsx
     xlsx = tmp_path / "GPT_Names.xlsx"
