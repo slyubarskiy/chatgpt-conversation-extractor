@@ -223,6 +223,25 @@ def test_format_per_turn_suffix_only_plugin():
     assert s == " · plugin:Wolfram"
 
 
+def test_format_per_turn_suffix_skips_project_id_in_gpt_segment():
+    """Per-message gizmo_id starting with 'g-p-' is the project id, not a
+    Custom GPT @mention. It belongs in ``project_id`` frontmatter, not as
+    a per-turn ``gpt:`` segment. Skipping prevents noise on every assistant
+    turn of a project conversation (where the per-msg metadata echoes the
+    project id even when no Custom GPT was @mentioned)."""
+    # Project conv: conv-level gizmo_id is suppressed (None in metadata),
+    # but per-msg metadata still carries the project id.
+    msg = {"model_slug": "gpt-5", "gizmo_id": "g-p-690365a039348191"}
+    s = format_per_turn_suffix(msg, conv_default_gizmo_id=None)
+    assert s == " · gpt-5"  # NO gpt:g-p-... segment
+    assert "g-p-" not in s
+
+    # But a real Custom GPT @mention inside a project still emits the segment
+    msg2 = {"model_slug": "gpt-5", "gizmo_id": "g-dZUgwxUeJ"}
+    s2 = format_per_turn_suffix(msg2, conv_default_gizmo_id=None)
+    assert s2 == " · gpt-5 · gpt:g-dZUgwxUeJ"
+
+
 # --------------------------------------------------------------------------- #
 # Integration through ConversationExtractorV2
 # --------------------------------------------------------------------------- #
