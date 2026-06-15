@@ -16,6 +16,7 @@ import yaml
 
 from chatgpt_extractor.extractor import ConversationExtractorV2
 from chatgpt_extractor.gpt_metadata import (
+    extract_conv_deep_research_meta,
     extract_conv_gpt_meta,
     extract_msg_gpt_signals,
     format_per_turn_suffix,
@@ -139,6 +140,117 @@ def test_extract_conv_gpt_meta_tolerates_missing_mapping():
     """Defensive: a conv with no mapping field (extreme edge case) doesn't crash."""
     out = extract_conv_gpt_meta({"gizmo_type": "gpt", "gizmo_id": "g-x"})
     assert out == {"gizmo_id": "g-x", "gizmo_type": "gpt"}
+
+
+# --------------------------------------------------------------------------- #
+# extract_conv_deep_research_meta — pure function over the raw conv shape
+# --------------------------------------------------------------------------- #
+
+
+def _dr_node(node_id: str, role: str, *, version: int | None = None,
+             suppressed: bool = False, pineapple: bool = False,
+             attribution: bool = False) -> dict:
+    """Mapping node carrying whichever Deep Research markers are requested."""
+    meta: dict = {}
+    if version is not None:
+        meta["deep_research_version"] = version
+    if suppressed:
+        meta["chatgpt_sdk_suppressed_response"] = True
+    sdk: dict = {}
+    if pineapple:
+        sdk["resolved_pineapple_uri"] = "connectors://connector_openai_deep_research"
+    if attribution:
+        sdk["attribution_id"] = "connector_openai_deep_research"
+    if sdk:
+        meta["chatgpt_sdk"] = sdk
+    msg = {"author": {"role": role}}
+    if meta:
+        msg["metadata"] = meta
+    return {"id": node_id, "message": msg}
+
+
+def test_extract_conv_deep_research_meta_detected_with_version():
+    """Initiating user message carries deep_research_version → emit both
+    deep_research:true and the version int."""
+    conv = {
+        "mapping": {
+            "u1": _dr_node("u1", "user", version=3),
+            "a1": _dr_node("a1", "assistant", suppressed=True),
+        }
+    }
+    assert extract_conv_deep_research_meta(conv) == {
+        "deep_research": True,
+        "deep_research_version": 3,
+    }
+
+
+def test_extract_conv_deep_research_meta_detected_via_suppressed_only():
+    """Final assistant has chatgpt_sdk_suppressed_response but no version
+    field anywhere → still detected, version omitted."""
+    conv = {
+        "mapping": {
+            "u1": _dr_node("u1", "user"),
+            "a1": _dr_node("a1", "assistant", suppressed=True),
+        }
+    }
+    out = extract_conv_deep_research_meta(conv)
+    assert out == {"deep_research": True}
+    assert "deep_research_version" not in out
+
+
+def test_extract_conv_deep_research_meta_detected_via_pineapple_uri():
+    """chatgpt_sdk.resolved_pineapple_uri matches the DR connector → detected."""
+    conv = {
+        "mapping": {
+            "a1": _dr_node("a1", "assistant", pineapple=True),
+        }
+    }
+    assert extract_conv_deep_research_meta(conv) == {"deep_research": True}
+
+
+def test_extract_conv_deep_research_meta_detected_via_attribution_id():
+    """chatgpt_sdk.attribution_id matches the DR connector → detected."""
+    conv = {
+        "mapping": {
+            "a1": _dr_node("a1", "assistant", attribution=True),
+        }
+    }
+    assert extract_conv_deep_research_meta(conv) == {"deep_research": True}
+
+
+def test_extract_conv_deep_research_meta_not_deep_research():
+    """Normal conv with neither suppressed-response nor DR connector
+    URI → empty dict (no field in frontmatter)."""
+    conv = {
+        "mapping": {
+            "u1": {"id": "u1", "message": {"author": {"role": "user"},
+                                            "metadata": {"model_slug": "gpt-4o"}}},
+            "a1": {"id": "a1", "message": {"author": {"role": "assistant"},
+                                            "metadata": {
+                                                "model_slug": "gpt-4o",
+                                                "chatgpt_sdk": {
+                                                    "resolved_pineapple_uri":
+                                                        "connectors://something_else",
+                                                },
+                                            }}},
+        }
+    }
+    assert extract_conv_deep_research_meta(conv) == {}
+
+
+def test_extract_conv_deep_research_meta_handles_tombstone_nodes():
+    """Defensive: nodes with no message / non-dict metadata / no mapping at
+    all must not raise; they're treated as no-signal."""
+    conv = {
+        "mapping": {
+            "n1": {"id": "n1", "message": None},
+            "n2": "not-a-dict",
+            "n3": {"id": "n3"},  # no message key
+        }
+    }
+    assert extract_conv_deep_research_meta(conv) == {}
+    assert extract_conv_deep_research_meta({}) == {}
+    assert extract_conv_deep_research_meta({"mapping": None}) == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -393,6 +505,88 @@ def test_integration_json_carries_per_turn_gpt_fields(
     asst = [m for m in json_data["messages"] if m["role"] == "assistant"]
     assert asst[0]["model_slug"] == "gpt-4o"
     assert asst[0]["plugin_namespace"] == "youtube_api"
+
+
+def test_integration_deep_research_marker_lands_in_metadata_and_json(tmp_path):
+    """Deep Research conv → metadata + JSON envelope gain `deep_research: true`
+    (+ `deep_research_version` when known). The conv shape mirrors the real
+    `China VPN Censorship Research` example: chatgpt_sdk_suppressed_response
+    on the final assistant turn, deep_research_version on the user turn,
+    resolved_pineapple_uri on the assistant turn's chatgpt_sdk."""
+    conv = {
+        "id": "dr1",
+        "conversation_id": "dr1",
+        "title": "China VPN Censorship Research",
+        "create_time": 1.0,
+        "update_time": 2.0,
+        "default_model_slug": "gpt-5-5-thinking",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text",
+                                           "parts": ["research deeply..."]},
+                               "metadata": {"deep_research_version": 3}}},
+            "a1": {"id": "a1", "parent": "u1", "children": [],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 2.0,
+                               # Empty parts mirrors the real "suppressed"
+                               # shape so the markdown body looks identical
+                               # to a non-DR short reply — but the marker
+                               # makes the conv greppable.
+                               "content": {"content_type": "text", "parts": [""]},
+                               "metadata": {
+                                   "model_slug": "gpt-5-2-instant",
+                                   "chatgpt_sdk_suppressed_response": True,
+                                   "chatgpt_sdk": {
+                                       "resolved_pineapple_uri":
+                                           "connectors://connector_openai_deep_research",
+                                       "attribution_id":
+                                           "connector_openai_deep_research",
+                                   },
+                               }}},
+        },
+    }
+    ex = _extractor(tmp_path)
+    metadata, _msgs, json_data = ex.process_conversation(conv)
+
+    assert metadata["deep_research"] is True
+    assert metadata["deep_research_version"] == 3
+    assert json_data["deep_research"] is True
+    assert json_data["deep_research_version"] == 3
+    # And frontmatter actually renders the field
+    md = ex.generate_markdown(metadata, _msgs)
+    assert "deep_research: True" in md
+
+
+def test_integration_no_gpt_metadata_suppresses_deep_research_marker(tmp_path):
+    """--no-gpt-metadata reverts to pre-feature output and must NOT emit
+    the deep_research field either — it's gated on the same flag."""
+    conv = {
+        "id": "dr2", "conversation_id": "dr2", "title": "DR test",
+        "create_time": 1.0, "update_time": 2.0,
+        "default_model_slug": "gpt-5-thinking",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text", "parts": ["q"]},
+                               "metadata": {"deep_research_version": 1}}},
+            "a1": {"id": "a1", "parent": "u1", "children": [],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 2.0,
+                               "content": {"content_type": "text", "parts": ["r"]},
+                               "metadata": {
+                                   "chatgpt_sdk_suppressed_response": True,
+                               }}},
+        },
+    }
+    ex = _extractor(tmp_path, gpt_metadata=False)
+    metadata, _msgs, _json = ex.process_conversation(conv)
+    assert "deep_research" not in metadata
+    assert "deep_research_version" not in metadata
 
 
 def test_integration_atmention_emits_gpt_id_in_per_turn(tmp_path):

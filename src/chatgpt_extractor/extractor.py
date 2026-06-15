@@ -460,7 +460,10 @@ class ConversationExtractorV2:
         # extractor doesn't grow another paragraph of inline shape-poking;
         # online_sync inherits via OnlineRenderer wrapping this class.
         if self.gpt_metadata:
-            from .gpt_metadata import extract_conv_gpt_meta
+            from .gpt_metadata import (
+                extract_conv_deep_research_meta,
+                extract_conv_gpt_meta,
+            )
 
             metadata.update(extract_conv_gpt_meta(conv))
             # Resolve gizmo_id → human-readable name when the sidecar map
@@ -469,6 +472,12 @@ class ConversationExtractorV2:
             if gid := metadata.get("gizmo_id"):
                 if name := self._gpt_names.get(gid):
                     metadata["gpt_name"] = name
+            # Deep Research detection. Empty dict for non-DR convs is a
+            # safe no-op merge; positive detections add `deep_research:
+            # true` (and `deep_research_version` when known) so DR convs
+            # become greppable even though their artifact body remains
+            # absent from the export.
+            metadata.update(extract_conv_deep_research_meta(conv))
 
         return metadata
 
@@ -1065,7 +1074,14 @@ class ConversationExtractorV2:
         # so JSON consumers don't have to re-derive them. Only fields the
         # extractor actually populated are surfaced; absence stays absent.
         if self.gpt_metadata:
-            for k in ("gizmo_id", "gizmo_type", "models_used", "gpt_name"):
+            for k in (
+                "gizmo_id",
+                "gizmo_type",
+                "models_used",
+                "gpt_name",
+                "deep_research",
+                "deep_research_version",
+            ):
                 if k in metadata:
                     json_data[k] = metadata[k]
 

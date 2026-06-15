@@ -100,6 +100,88 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+_DEEP_RESEARCH_PINEAPPLE_URI = "connectors://connector_openai_deep_research"
+_DEEP_RESEARCH_ATTRIBUTION_ID = "connector_openai_deep_research"
+
+
+def extract_conv_deep_research_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
+    """Detect whether a conversation invoked OpenAI's Deep Research connector.
+
+    Deep Research turns have several per-message metadata markers — none
+    of which reach the conversation-level fields — and the substantive
+    artifact (the rendered research document) is deliberately suppressed
+    from the conversation document via
+    ``metadata.chatgpt_sdk_suppressed_response``. This makes Deep Research
+    convs visually indistinguishable from short thinking-model chats in
+    the extracted output: same ``model_slug``, same `models_used`, an
+    assistant turn with empty ``parts``, no signal that the user actually
+    spent compute on a substantial research task.
+
+    Detection scans the mapping for any of the four markers (any one is
+    sufficient):
+
+    - ``metadata.deep_research_version`` — the explicit DR version flag,
+      usually present on the user message that started the research.
+    - ``metadata.chatgpt_sdk_suppressed_response == True`` — the "this
+      body is not in the conversation document" flag on the final
+      assistant turn.
+    - ``metadata.chatgpt_sdk.resolved_pineapple_uri == "connectors://...
+      connector_openai_deep_research"`` — the connector URI.
+    - ``metadata.chatgpt_sdk.attribution_id == "connector_openai_deep_research"``
+      — the explicit attribution string.
+
+    Args:
+        conv: One conversation dict (same shape as ``extract_conv_gpt_meta``
+              consumes).
+
+    Returns:
+        ``{"deep_research": True, "deep_research_version": <int>}`` when
+        detected; ``deep_research_version`` is omitted when the value
+        wasn't found (some legacy DR convs lack the version field).
+        Empty dict when the conversation is not Deep Research.
+    """
+    mapping = conv.get("mapping") or {}
+    if not isinstance(mapping, dict):
+        return {}
+
+    detected = False
+    version: Optional[Any] = None
+
+    for node in mapping.values():
+        if not isinstance(node, dict):
+            continue
+        msg = node.get("message")
+        if not isinstance(msg, dict):
+            continue
+        meta = msg.get("metadata") or {}
+
+        v = meta.get("deep_research_version")
+        if v is not None:
+            detected = True
+            # Use the first non-null value seen; in practice it's on the
+            # initiating user message and consistent across the exchange.
+            if version is None:
+                version = v
+
+        if meta.get("chatgpt_sdk_suppressed_response") is True:
+            detected = True
+
+        sdk = meta.get("chatgpt_sdk")
+        if isinstance(sdk, dict):
+            if sdk.get("resolved_pineapple_uri") == _DEEP_RESEARCH_PINEAPPLE_URI:
+                detected = True
+            if sdk.get("attribution_id") == _DEEP_RESEARCH_ATTRIBUTION_ID:
+                detected = True
+
+    if not detected:
+        return {}
+
+    out: Dict[str, Any] = {"deep_research": True}
+    if version is not None:
+        out["deep_research_version"] = version
+    return out
+
+
 def extract_msg_gpt_signals(api_msg: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """Pull per-message GPT signals (``model_slug``, ``gizmo_id``, plugin namespace).
 
