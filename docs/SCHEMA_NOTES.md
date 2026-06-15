@@ -67,8 +67,69 @@ DALL-E prompts can be in:
 
 ### Conversation Template ID Pattern
 - Project conversations: `conversation_template_id` starts with `g-p-`
-- Custom GPTs: `gizmo_id` field present
+- Custom GPTs: `gizmo_id` field present *(see 2026-06 schema change below)*
 - Both fields may exist simultaneously
+
+## 2026-06 Bulk Export Schema Change (Discovered: 2026-06-15)
+
+### Bulk export bundle vs. live API have diverged
+
+OpenAI updated the **bulk export** generator (Settings → Data controls →
+Export data) between Feb 2026 and June 2026. The **per-conversation
+live API** (`/backend-api/conversation/{id}`) was NOT updated and
+continues to emit the older shape.
+
+Concretely, the same conversation looks like this from the two sources:
+
+| Field | Old single-file export (Feb 2026) | New 92-file export (Jun 2026) | Live API (Jun 2026) |
+| --- | --- | --- | --- |
+| `gizmo_id` (conv-level) | present, equals Custom GPT id | **absent** | present |
+| `gizmo_type` | present | present | present |
+| `conversation_template_id` | equals `gizmo_id` for Custom GPT convs | equals old `gizmo_id` | present |
+| `metadata.gizmo_id` (per-msg) | present | present | present |
+| `metadata.model_slug` (per-msg) | present | present | present |
+| `blocked_urls`, `is_read_only`, `is_study_mode`, `owner`, `pinned_time`, `plugin_ids`, `safe_urls`, `sugar_item_id`, `sugar_item_visible` | present | **absent** | present |
+| `mapping` (graph) | full | pre-trimmed: drops `role='system'` nodes with `is_visually_hidden_from_conversation=True` (already filtered downstream) | full |
+
+The new export is a **strict subset** of the old shape — no new keys
+appear. Both `gizmo_type` and `conversation_template_id` are retained
+100% in the new bulk export (verified across all 9,134 conversations).
+
+### Multi-file bundle layout
+
+The 2026-06 export bundle contains 92 files named
+`conversations-000.json` … `conversations-091.json` instead of one
+`conversations.json`. Each file is a top-level JSON array. Files are
+sharded by conversation id (clean disjoint, zero duplicate ids), not
+chronologically — files 000 and 091 both span the user's full activity
+date range. Every file holds 100 convs except the last (which holds the
+remainder).
+
+### Recovery for the missing `gizmo_id`
+
+For Custom GPT conversations in the new export,
+`conversation_template_id` carries the value that the old
+`gizmo_id` had. Confirmed byte-identical across 5 cross-format spot
+checks on two different gizmos (`g-F36RMaEje`, `g-dZUgwxUeJ`).
+
+Recommended fallback for any code reading the bulk export:
+
+```python
+gizmo_id = conv.get("gizmo_id") or (
+    conv.get("conversation_template_id")
+    if conv.get("gizmo_type") == "gpt" else None
+)
+```
+
+The condition `gizmo_type == 'gpt'` is what keeps `g-p-*` (project)
+template ids from leaking into `gizmo_id`.
+
+### Live-sync implications
+
+Because the live API kept the old shape, `online_sync.fetch.fetch_full`
+→ `OnlineRenderer` → `ConversationExtractorV2` works unchanged. The
+fallback rule above is needed only when the extractor's input is a
+fresh bulk export bundle.
 
 ## Message Continuations
 
