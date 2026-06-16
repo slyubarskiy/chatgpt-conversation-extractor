@@ -50,6 +50,29 @@ class TestConversationExtractorV2:
         assert extractor.output_dir == output_dir
         assert output_dir.exists()
 
+    def test_initialization_without_input_file(self, temp_dirs):
+        """Construct without input_file — supports callers operating on dicts
+        already in memory who do not need a file on disk."""
+        _, output_dir = temp_dirs
+        extractor = ConversationExtractorV2(output_dir=str(output_dir))
+        assert extractor.input_file is None
+        assert extractor.output_dir == output_dir
+
+    def test_extract_all_without_input_file_raises(self, temp_dirs):
+        """extract_all() must raise a clear ValueError if no input_file was
+        supplied — clearer than the cryptic open(None) failure it would
+        otherwise produce."""
+        _, output_dir = temp_dirs
+        extractor = ConversationExtractorV2(output_dir=str(output_dir))
+        with pytest.raises(ValueError, match="input_file"):
+            extractor.extract_all()
+
+    def test_initialization_without_output_dir_raises(self):
+        """output_dir is typed Optional only because Python forbids a non-default
+        arg after a default one; it is runtime-required."""
+        with pytest.raises(ValueError, match="output_dir"):
+            ConversationExtractorV2()
+
     def test_extract_metadata(self, temp_dirs, sample_data):
         """Test metadata extraction from conversation."""
         input_file, output_dir = temp_dirs

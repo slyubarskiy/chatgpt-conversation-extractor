@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Custom GPT / per-turn model / plugin metadata in output (PR #6).
+  Frontmatter gains `gizmo_id`, `gizmo_type`, `models_used` (deduped
+  per-message slug set). Per-turn italic line gains `· model_slug`,
+  `· plugin:<namespace>`, and `· gpt:<id>` (the last only when the
+  per-message gizmo differs from the conversation default — the
+  @mention case). JSON per-message dicts mirror the same fields.
+- `GPT_Names.xlsx` sidecar reader (PR #7). When `--gpt-names-xlsx <path>`
+  (or `config.gpt_names_xlsx`) points at a 2- or 3-column xlsx mapping
+  `gizmo_id → name`, frontmatter gains `gpt_name:` for Custom GPT
+  conversations and the per-turn `gpt:<id>` substitutes
+  `gpt:<Pretty Name>` with id fallback when the name is unknown.
+  Missing / unreadable sidecar silently degrades to id-only output.
+- Per-message timestamps in markdown + JSON output (PR #5). Italic
+  ISO-8601 UTC line beneath each role heading; `timestamp` field on
+  every JSON message. Gated by `--per-turn-timestamps` /
+  `--no-per-turn-timestamps` (default on).
+- Layered YAML config (PR #5). Built-in defaults → file (explicit
+  path → `$CHATGPT_EXTRACTOR_CONFIG` → `./chatgpt_extractor.yaml` →
+  `~/.config/chatgpt_extractor/config.yaml`) → CLI args. Malformed
+  YAML falls back silently. Keys: `per_turn_timestamps`,
+  `gpt_metadata`, `gpt_names_xlsx`.
+- `ConversationExtractorV2(input_file=None)` allowed (PR #4) for
+  callers that only use the per-conversation methods on in-memory
+  dicts (e.g. the live-sync renderer).
+
+### Changed
+- `extract_metadata` now emits `models_used:` (the deduped per-
+  message `model_slug` set) — the legacy `model:` field still emits
+  `default_model_slug` unchanged for backwards compatibility.
+- `merge_continuations` inherits `model_slug` / `gizmo_id` /
+  `plugin_namespace` from the earliest segment alongside
+  `create_time`, matching "the assistant began replying" semantics.
+
+### Fixed
+- `g-p-*` (project) ids no longer leak into the per-turn `gpt:`
+  segment of project conversations (PR #8). Per-message metadata in
+  project convs echoes the project id as `gizmo_id`; the segment now
+  filters those out, leaving real Custom GPT @mentions
+  (`g-XXXX` form) emitting cleanly.
+
+### Architecture
+- New module `src/chatgpt_extractor/gpt_metadata.py` (pure functions
+  + the `load_gpt_names_xlsx` sidecar reader) isolates the
+  Custom-GPT logic from the extractor's main class. The companion
+  writer lives in the private `online_sync` package; the live sync
+  inherits the read path via `OnlineRenderer` wrapping
+  `ConversationExtractorV2` unchanged.
+- New module `src/chatgpt_extractor/config.py` (`load_config` +
+  `DEFAULTS`) implements the layered config loader.
+
+## [3.1] - 2025-09-12
+
+### Changed
+- Default output directory changed from `data/output_md` to
+  `data/output`. Markdown files now land in `data/output/md/` by
+  default; pass `--markdown-dir <path>` to override without the
+  subdirectory.
+- Added `--output-format {markdown,json,both}`,
+  `--json-format {single,multiple}`, `--markdown-dir`, `--json-dir`,
+  `--json-file` for multi-format output configuration.
+
 ## [2.0.0] - 2025-01-12
 
 ### Added

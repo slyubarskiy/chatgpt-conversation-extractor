@@ -150,6 +150,62 @@ Migration note for v3.1:
         help="Sync file timestamps with conversation metadata (default: true)",
     )
 
+    # Per-turn timestamps in output (italic ISO line under each role heading
+    # in markdown; ``timestamp`` field in JSON). Default is True from the
+    # config layer; pass --no-per-turn-timestamps to match the pre-config
+    # output format.
+    parser.add_argument(
+        "--per-turn-timestamps",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Emit per-message timestamps in output (default from config "
+            "file, which defaults to true). Pass --no-per-turn-timestamps "
+            "to suppress."
+        ),
+    )
+
+    # GPT / per-turn-model / plugin metadata in output. Frontmatter gains
+    # gizmo_id, gizmo_type, models_used; per-turn italic line gains
+    # · model_slug · plugin:<ns> · gpt:<id>. Same config-layered default
+    # as per-turn-timestamps.
+    parser.add_argument(
+        "--gpt-metadata",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Emit Custom GPT / per-turn model / plugin signals (default "
+            "from config file, which defaults to true). Pass "
+            "--no-gpt-metadata to match the pre-feature output."
+        ),
+    )
+
+    # Path to GPT_Names.xlsx sidecar (id → human-readable name). When
+    # supplied and readable, frontmatter gains ``gpt_name:`` and per-turn
+    # ``gpt:<id>`` substitutes ``gpt:<Pretty Name>``. Missing / unreadable
+    # file degrades to id-only — no error.
+    parser.add_argument(
+        "--gpt-names-xlsx",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to GPT_Names.xlsx mapping gizmo_id -> name "
+            "(populated by `online-sync gpt-names` in the live-sync "
+            "repo). Default from config file (default: no resolution)."
+        ),
+    )
+
+    parser.add_argument(
+        "--config",
+        dest="config_path",
+        default=None,
+        help=(
+            "Path to a YAML config file (search order: this flag, "
+            "$CHATGPT_EXTRACTOR_CONFIG, ./chatgpt_extractor.yaml, "
+            "~/.config/chatgpt_extractor/config.yaml). See config.py."
+        ),
+    )
+
     # Existing options
     parser.add_argument(
         "--analyze-failures",
@@ -193,6 +249,10 @@ Migration note for v3.1:
             json_dir=args.json_dir,
             json_file=args.json_file,
             preserve_timestamps=args.preserve_timestamps,
+            per_turn_timestamps=args.per_turn_timestamps,
+            gpt_metadata=args.gpt_metadata,
+            gpt_names_xlsx=args.gpt_names_xlsx,
+            config_path=args.config_path,
         )
         extractor.extract_all()
 

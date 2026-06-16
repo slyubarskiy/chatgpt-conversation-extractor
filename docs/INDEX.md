@@ -8,13 +8,15 @@ This production-ready documentation package provides comprehensive coverage of t
 
 ```
 docs/
-├── INDEX.md                    # This file - documentation overview
-├── QUICK_REFERENCE.md          # Developer quick reference card
-├── USER_GUIDE.md               # End-user installation and usage
-├── ARCHITECTURE.md             # System design and components
-├── TECHNICAL_REFERENCE.md     # API reference and data structures
-├── OPERATIONS.md               # Runbook and troubleshooting
-└── 20_implementation_learnings_and_documentation_gaps.md  # Lessons learned
+├── INDEX.md                            # This file - documentation overview
+├── QUICK_REFERENCE.md                  # Developer quick reference card
+├── USER_GUIDE.md                       # End-user installation and usage
+├── ARCHITECTURE.md                     # System design and components
+├── TECHNICAL_REFERENCE.md              # API reference and data structures
+├── OPERATIONS.md                       # Runbook and troubleshooting
+├── SCHEMA_NOTES.md                     # Notes on conversation.json schema
+├── CUSTOM_INSTRUCTIONS_EXTRACTION.md   # Custom-instructions handling
+└── RELEASE_NOTES_3.1.md                # v3.1 release notes
 ```
 
 ## 📖 Document Guide
@@ -122,17 +124,16 @@ For long-term maintenance and updates:
 
 ---
 
-### [20_implementation_learnings_and_documentation_gaps.md](20_implementation_learnings_and_documentation_gaps.md)
-**Purpose**: Lessons learned and gap analysis  
-**Contents**:
-- Critical implementation fixes
-- Documentation gaps discovered
-- Undocumented content structures
-- Edge cases and solutions
-- Updated requirements
-- Implementation checklist
+### [SCHEMA_NOTES.md](SCHEMA_NOTES.md)
+**Purpose**: Notes on the ChatGPT export schema
+**Contents**: gizmo_type values, model_slug per turn, edge cases
+**Best For**: Maintainers diagnosing schema drift
 
-**Best For**: Future implementations, understanding why certain decisions were made
+---
+
+### [CUSTOM_INSTRUCTIONS_EXTRACTION.md](CUSTOM_INSTRUCTIONS_EXTRACTION.md)
+**Purpose**: How custom instructions are extracted and emitted
+**Best For**: Maintainers working on system-prompt handling
 
 ## 🔄 Documentation Workflow
 
@@ -244,9 +245,9 @@ For documentation improvements:
 
 ---
 
-**Documentation Version**: 1.0  
-**System Version**: 2.0  
-**Last Updated**: 2025-01-12  
-**Total Documentation**: ~2,500 lines across 7 documents  
+**Documentation Version**: 1.1
+**System Version**: 3.1 (+ unreleased work: per-turn timestamps, Custom GPT metadata, GPT_Names.xlsx sidecar, layered YAML config — see CHANGELOG)
+**Last Updated**: 2026-06-14
+**Total Documentation**: ~2,500 lines across 9 documents
 
 *This documentation set provides complete coverage for users, developers, operators, and maintainers of the ChatGPT Conversation Extractor system.*

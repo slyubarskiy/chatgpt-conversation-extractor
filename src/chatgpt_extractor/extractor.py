@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from collections import defaultdict
 
@@ -35,20 +35,30 @@ class ConversationExtractorV2:
 
     def __init__(
         self,
-        input_file: str,
-        output_dir: str,
+        input_file: Optional[str] = None,
+        output_dir: Optional[str] = None,
         output_format: str = "markdown",
         json_format: str = "multiple",
         markdown_dir: Optional[str] = None,
         json_dir: Optional[str] = None,
         json_file: Optional[str] = None,
         preserve_timestamps: bool = True,
+        per_turn_timestamps: Optional[bool] = None,
+        gpt_metadata: Optional[bool] = None,
+        gpt_names_xlsx: Optional[str] = None,
+        config_path: Optional[str] = None,
     ):
         """Initialize the extractor with multi-format configuration.
 
         Args:
-            input_file: Path to conversations.json
-            output_dir: Base directory for output files
+            input_file: Path to conversations.json. Optional — only required if
+                        extract_all() will be called. Per-conversation methods
+                        (process_conversation, generate_markdown, save_markdown_file,
+                        sanitize_filename) operate on dicts already in memory and
+                        do not need a file on disk.
+            output_dir: Base directory for output files (required). Typed Optional
+                        only because Python signature ordering requires a default
+                        once input_file has one; runtime-validated as required.
             output_format: 'markdown', 'json', or 'both'
             json_format: 'single' or 'multiple' for JSON output
             markdown_dir: Override path for markdown output (bypasses md/ subdirectory)
@@ -56,15 +66,87 @@ class ConversationExtractorV2:
             json_file: Override path for single JSON output file
             preserve_timestamps: Sync file timestamps with conversation metadata
                                  (individual files only; single JSON uses processing time)
+            per_turn_timestamps: When True (default), emit per-message
+                        timestamps as italic ISO-8601 UTC lines beneath each
+                        role heading in markdown output, and as the
+                        ``timestamp`` field in JSON output. Pass ``False`` to
+                        match the pre-config behaviour (conversation-level
+                        timestamps in YAML frontmatter only). Pass ``None``
+                        (default) to read from the config file; the config
+                        file itself defaults to ``True``.
+            gpt_metadata: When True (default), enrich output with Custom
+                        GPT / per-turn model / plugin signals. Frontmatter
+                        gains ``gizmo_id`` (only for Custom GPTs, not
+                        projects), ``gizmo_type``, and ``models_used`` (the
+                        deduped set of per-message ``model_slug`` values).
+                        The per-turn italic line gains ``· model_slug``,
+                        ``· plugin:<namespace>``, and ``· gpt:<id>`` (the
+                        last only when the per-message gizmo differs from
+                        the conversation default — the @mention case). JSON
+                        per-message dicts gain ``model_slug``, ``gizmo_id``,
+                        ``plugin_namespace``. Pass ``False`` for legacy
+                        output; ``None`` (default) reads from the config
+                        file (itself defaults to ``True``).
+            gpt_names_xlsx: Optional path to a ``GPT_Names.xlsx`` sidecar
+                        (id → human-readable name). When provided AND the
+                        file is readable, frontmatter gains a ``gpt_name:``
+                        field for Custom GPT conversations, and per-turn
+                        ``gpt:<id>`` is replaced by ``gpt:<Pretty Name>``
+                        where a name is known. Missing file or malformed
+                        workbook silently degrades to id-only output —
+                        the extractor never crashes on a bad sidecar.
+                        ``None`` (default) reads from the config file
+                        (itself defaults to ``None``, i.e. no resolution).
+            config_path: Path to a YAML config file overriding built-in
+                        defaults. Searches ``$CHATGPT_EXTRACTOR_CONFIG``,
+                        ``./chatgpt_extractor.yaml``, and
+                        ``~/.config/chatgpt_extractor/config.yaml`` if not
+                        explicitly supplied. See ``config.py`` for the
+                        layering rules.
         """
         self.logger = get_logger(__name__)
-        self.input_file = Path(input_file)
+        if output_dir is None:
+            raise ValueError("output_dir is required")
+        # input_file is optional: callers using only per-conversation methods on
+        # in-memory dicts don't need a file on disk. extract_all() validates that
+        # it was supplied (clear error instead of a cryptic open(None) failure).
+        self.input_file = Path(input_file) if input_file else None
         self.output_dir = Path(output_dir)
 
         # Store format configuration
         self.output_format = output_format
         self.json_format = json_format
         self.preserve_timestamps = preserve_timestamps
+
+        # Resolve flag-style config values: explicit constructor arg wins;
+        # otherwise consult the config file (which itself falls back to a
+        # True default). Loaded once and shared across all flags so a
+        # single config-file read covers all knobs.
+        _cfg = None
+        if (
+            per_turn_timestamps is None
+            or gpt_metadata is None
+            or gpt_names_xlsx is None
+        ):
+            from .config import load_config
+
+            _cfg = load_config(config_path)
+        if per_turn_timestamps is None:
+            per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
+        if gpt_metadata is None:
+            gpt_metadata = bool(_cfg.get("gpt_metadata", True))
+        if gpt_names_xlsx is None:
+            # ``None`` here means "no name resolution" — distinct from
+            # the per_turn / gpt_metadata booleans which default True.
+            gpt_names_xlsx = _cfg.get("gpt_names_xlsx") if _cfg else None
+        self.per_turn_timestamps = per_turn_timestamps
+        self.gpt_metadata = gpt_metadata
+        # Load the gpt_id → name map once at construct time; downstream
+        # reads (extract_metadata + generate_markdown) reuse the same
+        # dict. Missing / bad sidecar → empty dict, no crash.
+        from .gpt_metadata import load_gpt_names_xlsx
+
+        self._gpt_names: Dict[str, str] = load_gpt_names_xlsx(gpt_names_xlsx)
 
         # Determine output paths based on configuration
         self.output_paths = self.determine_output_paths(
@@ -174,6 +256,10 @@ class ConversationExtractorV2:
 
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
+        if self.input_file is None:
+            raise ValueError(
+                "extract_all() requires input_file to be set at construction time"
+            )
         self.logger.info(f"ChatGPT Conversation Extractor v2.0")
         self.logger.info(f"{'='*60}")
 
@@ -370,6 +456,29 @@ class ConversationExtractorV2:
             if project_id.startswith("g-p-"):
                 metadata["project_id"] = project_id
 
+        # Custom GPT / per-turn model / models_used. Module-isolated so the
+        # extractor doesn't grow another paragraph of inline shape-poking;
+        # online_sync inherits via OnlineRenderer wrapping this class.
+        if self.gpt_metadata:
+            from .gpt_metadata import (
+                extract_conv_deep_research_meta,
+                extract_conv_gpt_meta,
+            )
+
+            metadata.update(extract_conv_gpt_meta(conv))
+            # Resolve gizmo_id → human-readable name when the sidecar map
+            # has it. Lookups against an empty dict are O(1) no-ops, so we
+            # don't gate this on a separate "names enabled" flag.
+            if gid := metadata.get("gizmo_id"):
+                if name := self._gpt_names.get(gid):
+                    metadata["gpt_name"] = name
+            # Deep Research detection. Empty dict for non-DR convs is a
+            # safe no-op merge; positive detections add `deep_research:
+            # true` (and `deep_research_version` when known) so DR convs
+            # become greppable even though their artifact body remains
+            # absent from the export.
+            metadata.update(extract_conv_deep_research_meta(conv))
+
         return metadata
 
     def collect_message_statistics(
@@ -556,6 +665,23 @@ class ConversationExtractorV2:
 
         return list(reversed(messages))
 
+    @staticmethod
+    def _format_per_turn_ts(unix_seconds: float) -> str:
+        """Format a Unix timestamp as ISO-8601 UTC for per-turn rendering.
+
+        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``). The
+        conversation-level ``created`` / ``updated`` fields in YAML
+        frontmatter use a different convention (naive ``fromtimestamp`` +
+        ``"Z"`` suffix, which mislabels local-wall-time as UTC). Per-turn
+        timestamps are emitted correctly here; reconciling the two formats
+        within a single file is a deferred follow-up tracked elsewhere.
+        """
+        return (
+            datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
     def process_messages(
         self, messages: List[Dict[str, Any]], conv_id: str, conv_data: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -596,6 +722,23 @@ class ConversationExtractorV2:
                 if content:  # Only add if has content after filtering
                     msg_data = {"role": author_role, "content": content}
 
+                    # Preserve per-message create_time when present on the
+                    # source. Surfaced under each role heading in markdown
+                    # output and as the ``timestamp`` field in JSON output
+                    # (gated on the per_turn_timestamps flag at render time).
+                    if (ct := msg.get("create_time")) is not None:
+                        msg_data["create_time"] = ct
+
+                    # Per-turn GPT signals (model_slug, gizmo_id, plugin
+                    # namespace). Stashed unconditionally because their
+                    # cost is trivial; the render-time flag decides
+                    # whether they reach the markdown / JSON output.
+                    from .gpt_metadata import extract_msg_gpt_signals
+
+                    for k, v in extract_msg_gpt_signals(msg).items():
+                        if v is not None:
+                            msg_data[k] = v
+
                     citations = self.message_processor.extract_citations(msg)
                     if citations:
                         msg_data["citations"] = citations
@@ -622,7 +765,15 @@ class ConversationExtractorV2:
                         msg, conv_id
                     )
                     if extracted:
-                        processed.append({"role": "assistant", "content": extracted})
+                        tool_msg_data = {"role": "assistant", "content": extracted}
+                        if (ct := msg.get("create_time")) is not None:
+                            tool_msg_data["create_time"] = ct
+                        from .gpt_metadata import extract_msg_gpt_signals
+
+                        for k, v in extract_msg_gpt_signals(msg).items():
+                            if v is not None:
+                                tool_msg_data[k] = v
+                        processed.append(tool_msg_data)
 
         return processed
 
@@ -674,6 +825,19 @@ class ConversationExtractorV2:
 
                 merged_msg = {"role": "assistant", "content": combined_content}
 
+                # Inherit the earliest segment's create_time as the response's
+                # start time — matches how a reader would interpret "when did
+                # the assistant begin replying."
+                if "create_time" in current:
+                    merged_msg["create_time"] = current["create_time"]
+
+                # Per-turn GPT signals inherit from the earliest segment too
+                # (the assistant's reply may continue across segments but the
+                # model / gizmo / plugin context applies to the whole reply).
+                for k in ("model_slug", "gizmo_id", "plugin_namespace"):
+                    if k in current:
+                        merged_msg[k] = current[k]
+
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
                 if "web_urls" in current:
@@ -724,6 +888,34 @@ class ConversationExtractorV2:
                 lines.append("## Assistant")
             else:
                 lines.append(f"## {role.title()}")
+
+            # Per-turn timestamp (italic ISO line under the role heading).
+            # Gated on the flag so callers using --no-per-turn-timestamps
+            # get exactly the pre-config output. System messages are skipped
+            # because the system prompt's "send time" is conceptually the
+            # custom-instructions configuration time, not a chat moment.
+            if (
+                self.per_turn_timestamps
+                and role != "system"
+                and (ct := msg.get("create_time")) is not None
+            ):
+                # GPT-metadata suffix piggybacks on the per-turn timestamp
+                # line: " · model_slug · plugin:<ns> · gpt:<name-or-id>"
+                # where any absent segment is suppressed. gpt:<...> only
+                # fires when the per-message gizmo differs from the
+                # conversation default (the @mention pattern). The
+                # ``gpt:`` segment shows the human-readable name when
+                # ``_gpt_names`` resolves it, else falls back to the id.
+                suffix = ""
+                if self.gpt_metadata:
+                    from .gpt_metadata import format_per_turn_suffix
+
+                    suffix = format_per_turn_suffix(
+                        msg,
+                        metadata.get("gizmo_id"),
+                        names_map=self._gpt_names,
+                    )
+                lines.append(f"*{self._format_per_turn_ts(ct)}{suffix}*")
 
             if role == "user" and "files" in msg:
                 for file in msg["files"]:
@@ -878,19 +1070,52 @@ class ConversationExtractorV2:
             "messages": [],
         }
 
+        # Mirror gpt_metadata frontmatter additions in the JSON envelope
+        # so JSON consumers don't have to re-derive them. Only fields the
+        # extractor actually populated are surfaced; absence stays absent.
+        if self.gpt_metadata:
+            for k in (
+                "gizmo_id",
+                "gizmo_type",
+                "models_used",
+                "gpt_name",
+                "deep_research",
+                "deep_research_version",
+            ):
+                if k in metadata:
+                    json_data[k] = metadata[k]
+
         # Handle custom instructions - already in dict format from metadata
         if custom_instructions := metadata.get("custom_instructions"):
             json_data["custom_instructions"] = custom_instructions
 
         # Transform messages to JSON structure, preserving optional fields only when present to minimize output size
         for msg in messages:
+            # ``timestamp`` is the per-message create_time (Unix seconds in the
+            # source) rendered as ISO-8601 UTC for consistency with the
+            # conversation-level ``created`` / ``updated`` style. Emitted when
+            # the source carries it AND the per_turn_timestamps flag is on;
+            # otherwise null, matching the legacy field shape.
+            ct = msg.get("create_time")
+            ts_str = (
+                self._format_per_turn_ts(ct)
+                if (self.per_turn_timestamps and ct is not None)
+                else None
+            )
             json_msg = {
                 "role": msg.get("role"),
                 "content": msg.get("content", ""),
-                "timestamp": msg.get(
-                    "timestamp"
-                ),  # May be None for older conversations
+                "timestamp": ts_str,
             }
+
+            # Per-turn GPT signals — only emit when the flag is on AND the
+            # signal is actually present on this message, so legacy JSON
+            # consumers don't see new keys for conversations that had no
+            # per-turn GPT data anyway.
+            if self.gpt_metadata:
+                for k in ("model_slug", "gizmo_id", "plugin_namespace"):
+                    if k in msg:
+                        json_msg[k] = msg[k]
 
             # Include auxiliary data only when present to keep JSON compact
             if citations := msg.get("citations"):
@@ -929,7 +1154,7 @@ class ConversationExtractorV2:
                 "failed_conversations": len(self.conversion_failures),
                 "extractor_version": "3.1",
                 "export_format": "single",
-                "source_file": str(self.input_file),
+                "source_file": str(self.input_file) if self.input_file else None,
                 "timestamp_sync_enabled": self.preserve_timestamps,
             },
             "conversations": conversations,
