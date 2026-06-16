@@ -526,7 +526,7 @@ These content types are always excluded:
 ### Command Line Arguments
 
 ```bash
-python -m chatgpt_extractor [input_file] [output_dir] [options]
+uv run chatgpt-extractor [input_file] [output_dir] [options]
 
 # Format selection
 --output-format {markdown,json,both}    # default: markdown
@@ -697,96 +697,21 @@ failure_record = {
 }
 ```
 
-## Utility Tools
+## Failure Analysis
 
-### analyze_failures.py
+The CLI supports `--analyze-failures`, but the detailed analyzer is optional.
+If `chatgpt_extractor.analyze_failures` is not present in the installed package,
+the extractor logs that detailed analysis was skipped and still leaves the
+standard failure artifacts in the output directory:
 
-Standalone diagnostic tool for analyzing extraction failures and identifying patterns.
+- `conversion_log.log`
+- `conversion_failures.json`
 
-#### Usage
-
-```bash
-# Analyze failures from a previous run
-python analyze_failures.py
-
-# Analyze with custom sample size (default: 20)
-python analyze_failures.py
-```
-
-#### Core Function
-
-```python
-def analyze_failures(input_file: str, sample_size: int = 20) -> List[Dict]
-    """
-    Analyzes failed conversations to identify patterns.
-    
-    Args:
-        input_file: Path to conversations.json
-        sample_size: Number of failures to sample for detailed analysis
-    
-    Returns:
-        List of sampled failure dictionaries with full context
-    
-    Outputs:
-        - Console report with failure patterns and recommendations
-        - failure_analysis_report.json with detailed statistics
-    """
-```
-
-#### Failure Pattern Detection
-
-```python
-# Categorizes failures into:
-- NoneType_error: Missing content/parts fields
-- KeyError: Missing expected fields
-- empty_result: Successful parse but no output
-- index_error: List access issues
-- other: Uncategorized errors
-```
-
-#### Structural Analysis
-
-For each failed conversation, analyzes:
-- None content count in messages
-- None parts count in content
-- Empty parts arrays
-- Missing or invalid current_node
-- Branch count (edited conversations)
-- Total message count
-
-#### Output Files
-
-**failure_analysis_report.json**:
-```json
-{
-  "total_conversations": 6885,
-  "total_failures": 523,
-  "failure_rate": 7.6,
-  "failure_patterns": {
-    "NoneType_error": 467,
-    "empty_result": 56
-  },
-  "sample_failures": [...]
-}
-```
-
-#### Integration with Main Script
-
-While standalone, can be integrated for automatic analysis:
+Use the built-in logs first:
 
 ```bash
-#!/bin/bash
-# run_with_analysis.sh
-
-# Run extraction
-python -m chatgpt_extractor
-
-# Check if failures occurred
-if grep -q "Failed conversations:" data/output_md/conversion_log.log; then
-    echo "Analyzing failures..."
-    python analyze_failures.py
-    echo "See failure_analysis_report.json for details"
-fi
+uv run chatgpt-extractor data/raw/conversations.json data/output --analyze-failures
+grep "FAILURE CATEGORIES" data/output/conversion_log.log -A 10
 ```
 
 ## Performance Optimization

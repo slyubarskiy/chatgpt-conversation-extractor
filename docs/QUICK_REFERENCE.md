@@ -3,33 +3,38 @@
 ## Command Line
 
 ```bash
+# Privacy Portal nested export ZIP workflow
+make extract-conversations-zip                    # extracts Conversations__*-chatgpt-*.zip
+make list-inputs                                  # shows conversations.json / conversations-*.json
+make extract                                      # processes all discovered conversation shards
+
 # Basic usage (markdown only)
-python -m chatgpt_extractor                              # uses data/raw/conversations.json -> data/output/
-python -m chatgpt_extractor input.json output_dir/       # custom paths
+uv run chatgpt-extractor                                 # uses data/raw/conversations.json -> data/output/
+uv run chatgpt-extractor input.json output_dir/          # custom paths
 
 # Output format
-python -m chatgpt_extractor --output-format json         # JSON only (multiple files by default)
-python -m chatgpt_extractor --output-format both         # markdown + JSON
+uv run chatgpt-extractor --output-format json            # JSON only (multiple files by default)
+uv run chatgpt-extractor --output-format both            # markdown + JSON
 
 # JSON shape
-python -m chatgpt_extractor --output-format json --json-format multiple    # individual files in json/
-python -m chatgpt_extractor --output-format json --json-format single      # one consolidated file
-python -m chatgpt_extractor --output-format json --json-file all.json      # explicit consolidated path
+uv run chatgpt-extractor --output-format json --json-format multiple       # individual files in json/
+uv run chatgpt-extractor --output-format json --json-format single         # one consolidated file
+uv run chatgpt-extractor --output-format json --json-file all.json         # explicit consolidated path
 
 # Directory overrides (bypass md/, json/ subdirs)
-python -m chatgpt_extractor --markdown-dir custom/md/
-python -m chatgpt_extractor --json-dir custom/json/
+uv run chatgpt-extractor --markdown-dir custom/md/
+uv run chatgpt-extractor --json-dir custom/json/
 
 # Per-message metadata
-python -m chatgpt_extractor --no-per-turn-timestamps     # legacy: no per-turn ISO line in markdown
-python -m chatgpt_extractor --no-gpt-metadata            # legacy: no gizmo_id / models_used / · gpt:<id>
-python -m chatgpt_extractor --gpt-names-xlsx <path>      # resolve gizmo_id -> human-readable name
+uv run chatgpt-extractor --no-per-turn-timestamps        # legacy: no per-turn ISO line in markdown
+uv run chatgpt-extractor --no-gpt-metadata               # legacy: no gizmo_id / models_used / · gpt:<id>
+uv run chatgpt-extractor --gpt-names-xlsx <path>         # resolve gizmo_id -> human-readable name
 
 # File timestamps + config + diagnostics
-python -m chatgpt_extractor --preserve-timestamps false  # don't sync file mtimes to conv metadata
-python -m chatgpt_extractor --config /path/cfg.yaml      # explicit layered-config path
-python -m chatgpt_extractor --analyze-failures           # run failure analysis if errors occurred
-python -m chatgpt_extractor --debug                      # enable debug logging
+uv run chatgpt-extractor --preserve-timestamps false     # don't sync file mtimes to conv metadata
+uv run chatgpt-extractor --config /path/cfg.yaml         # explicit layered-config path
+uv run chatgpt-extractor --analyze-failures              # run failure analysis if errors occurred
+uv run chatgpt-extractor --debug                         # enable debug logging
 ```
 
 ## File Structure
@@ -213,17 +218,17 @@ Warning: Failed: >10 | Rate: <30/s | ETA: increasing
 grep "Failed:" log.txt | tail -1
 
 # Failure categories
-grep "FAILURE CATEGORIES" data/output/logs/conversion_log.log -A 10
+grep "FAILURE CATEGORIES" data/output/conversion_log.log -A 10
 
 # Unknown schema patterns
-grep "Unknown" data/output/logs/schema_evolution.log
+grep "Unknown" data/output/schema_evolution.log
 
 # Output file counts
 ls data/output/md/*.md | wc -l
 find data/output/md/g-p-* -name "*.md" | wc -l
 
 # Validate input JSON
-python -c "import json; json.load(open('data/raw/conversations.json'))"
+uv run python -c "import json; json.load(open('data/raw/conversations.json'))"
 ```
 
 ## Filtering Rules

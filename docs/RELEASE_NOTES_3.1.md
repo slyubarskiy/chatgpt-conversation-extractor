@@ -37,30 +37,28 @@
 
 ### New Usage Pattern
 ```bash
-# Old (still supported)
-python extract_conversations_v2.py input.json output/
-
-# New (recommended)
-python -m chatgpt_extractor input.json output/ [options]
+uv run chatgpt-extractor input.json output/ [options]
 ```
 
 ### New Options
-- `--json-dir`: Generate individual JSON files
-- `--json-file FILE`: Generate single consolidated JSON file
-- `--no-markdown`: Skip markdown generation
+- `--output-format {markdown,json,both}`: Select generated formats
+- `--json-format {single,multiple}`: Choose consolidated or individual JSON
+- `--json-dir PATH`: Override individual JSON output directory
+- `--json-file FILE`: Override consolidated JSON output path
 - `--help`: Display help message
 
 ## Examples
 
 ```bash
 # Both markdown and JSON output
-python -m chatgpt_extractor conversations.json output/ --json-dir
+uv run chatgpt-extractor conversations.json output/ --output-format both
 
 # JSON only
-python -m chatgpt_extractor conversations.json output/ --no-markdown --json-dir
+uv run chatgpt-extractor conversations.json output/ --output-format json
 
 # Single consolidated JSON file
-python -m chatgpt_extractor conversations.json output/ --json-file all_conversations.json
+uv run chatgpt-extractor conversations.json output/ --output-format json \
+    --json-format single --json-file all_conversations.json
 ```
 
 ## Migration Notes
@@ -70,10 +68,10 @@ python -m chatgpt_extractor conversations.json output/ --json-file all_conversat
 - **Default Behavior**: Running without flags still produces markdown-only output
 - **Directory Structure**: Output now goes to `output/md/` instead of directly to `output/`
   - Existing scripts may need path updates if they expect files directly in output directory
-  - Use `--no-json --no-markdown-subdir` for legacy flat structure (if needed)
+  - Use `--markdown-dir output` if a flat Markdown output directory is required
 
 ### For New Installations
-- Use the module invocation style: `python -m chatgpt_extractor`
+- Use the uv-managed console script: `uv run chatgpt-extractor`
 - Consider using `--json-dir` for programmatic access to conversation data
 - JSON format is ideal for further processing, analysis, or import into other systems
 

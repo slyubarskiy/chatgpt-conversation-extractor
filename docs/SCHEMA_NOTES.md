@@ -97,7 +97,13 @@ appear. Both `gizmo_type` and `conversation_template_id` are retained
 
 ### Multi-file bundle layout
 
-The 2026-06 export bundle contains 92 files named
+The 2026-06 Privacy Portal export first unpacks to nested ZIP files under
+`User Online Activity/`, including `Conversations__*-chatgpt-*.zip`,
+`Files__...zip`, and `Ads__...zip`. The conversation JSON shards are inside
+the nested `Conversations__*-chatgpt-*.zip`; the Ads and Files archives are
+not needed by the current Markdown extraction workflow.
+
+After extracting the nested conversations ZIP, the bundle contains files named
 `conversations-000.json` … `conversations-091.json` instead of one
 `conversations.json`. Each file is a top-level JSON array. Files are
 sharded by conversation id (clean disjoint, zero duplicate ids), not
