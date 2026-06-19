@@ -18,6 +18,7 @@ from chatgpt_extractor.extractor import ConversationExtractorV2
 from chatgpt_extractor.gpt_metadata import (
     extract_conv_deep_research_meta,
     extract_conv_gpt_meta,
+    extract_dr_report_message,
     extract_msg_gpt_signals,
     format_per_turn_suffix,
 )
@@ -251,6 +252,105 @@ def test_extract_conv_deep_research_meta_handles_tombstone_nodes():
     assert extract_conv_deep_research_meta(conv) == {}
     assert extract_conv_deep_research_meta({}) == {}
     assert extract_conv_deep_research_meta({"mapping": None}) == {}
+
+
+# --------------------------------------------------------------------------- #
+# extract_dr_report_message — pull body out of widget_state.report_message
+# --------------------------------------------------------------------------- #
+
+
+def _dr_tool_msg(report_text: str | None,
+                 *,
+                 model_slug: str | None = "gpt-5-2-instant",
+                 report_create_time: float | None = 1780275400.295557) -> dict:
+    """Build a tool message carrying widget_state.report_message in its
+    chatgpt_sdk metadata. Mirrors the production shape verified against
+    conv 6a1cd528."""
+    ws_dict = {
+        "plan": {"plan_id": "plan-test", "version": 1, "title": "T", "steps": []},
+        "status": "completed",
+    }
+    if report_text is not None:
+        report_msg: dict = {
+            "id": "rm-1",
+            "author": {"role": "assistant"},
+            "content": {"content_type": "text", "parts": [report_text]},
+        }
+        if report_create_time is not None:
+            report_msg["create_time"] = report_create_time
+        if model_slug is not None:
+            report_msg["metadata"] = {"model_slug": model_slug}
+        ws_dict["report_message"] = report_msg
+
+    return {
+        "id": "tool-1",
+        "author": {"role": "tool"},
+        "create_time": 1780274478.481,
+        "content": {"content_type": "code", "parts": None},
+        "metadata": {
+            "chatgpt_sdk": {"widget_state": json.dumps(ws_dict)},
+            "model_slug": "gpt-5-2-instant",
+        },
+        "recipient": "all",
+        "channel": "commentary",
+    }
+
+
+def test_extract_dr_report_message_happy_path():
+    """Tool message with widget_state.report_message → returns the dict."""
+    body = "# Detectability\n\n## Executive summary\n\nThe answer."
+    msg = _dr_tool_msg(body)
+    rm = extract_dr_report_message(msg)
+    assert rm is not None
+    assert rm["content"]["parts"] == [body]
+    assert rm["create_time"] == 1780275400.295557
+
+
+def test_extract_dr_report_message_rejects_non_tool_messages():
+    """An assistant message with widget_state-shaped metadata still returns
+    None — the carve-out is keyed on the tool role to match observed
+    ChatGPT shape (report bodies only ride on tool wrappers)."""
+    msg = _dr_tool_msg("body")
+    msg["author"]["role"] = "assistant"
+    assert extract_dr_report_message(msg) is None
+
+
+def test_extract_dr_report_message_missing_widget_state():
+    """Tool message without widget_state → None (most tool messages)."""
+    msg = {
+        "id": "t", "author": {"role": "tool"},
+        "content": {"content_type": "code", "parts": None},
+        "metadata": {"chatgpt_sdk": {}, "model_slug": "gpt-5"},
+    }
+    assert extract_dr_report_message(msg) is None
+    # Also: no chatgpt_sdk at all
+    msg["metadata"] = {"model_slug": "gpt-5"}
+    assert extract_dr_report_message(msg) is None
+
+
+def test_extract_dr_report_message_malformed_json_silently_returns_none():
+    """A truncated/bad widget_state string must not raise — the extractor
+    has to keep running on schema drift."""
+    msg = _dr_tool_msg("body")
+    msg["metadata"]["chatgpt_sdk"]["widget_state"] = "{this is not [json"
+    assert extract_dr_report_message(msg) is None
+
+
+def test_extract_dr_report_message_empty_parts_returns_none():
+    """widget_state with report_message but empty parts → None (caller
+    can't distinguish 'no body yet' from 'body is empty string')."""
+    msg = _dr_tool_msg("")  # empty string in parts[0]
+    assert extract_dr_report_message(msg) is None
+    # Also report_message with no parts at all
+    msg = _dr_tool_msg(None)  # no report_message in widget_state
+    assert extract_dr_report_message(msg) is None
+
+
+def test_extract_dr_report_message_defensive_on_non_dict_inputs():
+    """None / non-dict inputs return None without raising."""
+    assert extract_dr_report_message(None) is None
+    assert extract_dr_report_message("not a dict") is None
+    assert extract_dr_report_message(123) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -587,6 +687,132 @@ def test_integration_no_gpt_metadata_suppresses_deep_research_marker(tmp_path):
     metadata, _msgs, _json = ex.process_conversation(conv)
     assert "deep_research" not in metadata
     assert "deep_research_version" not in metadata
+
+
+def test_integration_dr_report_body_surfaces_in_markdown(tmp_path):
+    """Full pipeline: a conv with a DR tool message carrying
+    widget_state.report_message renders the body as an assistant turn.
+
+    Verifies the carve-out at extractor.process_messages tool branch +
+    processors.should_filter_message (which must keep DR-bearing tool
+    messages even though they have ``content_type: code`` with empty
+    parts)."""
+    body = (
+        "# Detectability of VLESS Vision TCP Raw REALITY\n\n"
+        "## Executive summary\n\n"
+        "The strongest defensible conclusion is that REALITY is "
+        "materially harder to detect."
+    )
+    ws_dict = {
+        "plan": {"plan_id": "p", "version": 1, "title": "T", "steps": []},
+        "status": "completed",
+        "report_message": {
+            "id": "rm-1", "author": {"role": "assistant"},
+            "create_time": 1780275400.0,
+            "content": {"content_type": "text", "parts": [body]},
+            "metadata": {"model_slug": "gpt-5-2-instant"},
+        },
+    }
+    conv = {
+        "id": "dr-conv", "conversation_id": "dr-conv",
+        "title": "China VPN Censorship Research",
+        "create_time": 1.0, "update_time": 2.0,
+        "default_model_slug": "gpt-5-5-thinking",
+        "current_node": "tool-1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 0.5,
+                               "content": {"content_type": "text",
+                                            "parts": ["research deeply..."]},
+                               "metadata": {"deep_research_version": "standard"}}},
+            "a1": {"id": "a1", "parent": "u1", "children": ["tool-1"],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 1.0,
+                               # Suppressed pre-tool placeholder — must NOT
+                               # render. The body comes from the tool wrapper.
+                               "content": {"content_type": "text", "parts": [""]},
+                               "metadata": {"chatgpt_sdk_suppressed_response": True,
+                                             "chatgpt_sdk": {
+                                                 "resolved_pineapple_uri":
+                                                     "connectors://connector_openai_deep_research",
+                                             }}}},
+            "tool-1": {"id": "tool-1", "parent": "a1", "children": [],
+                        "message": {"id": "tool-1", "author": {"role": "tool"},
+                                     "create_time": 1.5,
+                                     "content": {"content_type": "code",
+                                                  "parts": None},
+                                     "metadata": {
+                                         "chatgpt_sdk": {
+                                             "widget_state": json.dumps(ws_dict),
+                                         },
+                                         "model_slug": "gpt-5-2-instant",
+                                     },
+                                     "recipient": "all"}},
+        },
+    }
+    ex = _extractor(tmp_path)
+    metadata, msgs, json_data = ex.process_conversation(conv)
+    md = ex.generate_markdown(metadata, msgs)
+    # The artifact body landed in the markdown
+    assert "Detectability of VLESS Vision TCP Raw REALITY" in md
+    assert "Executive summary" in md
+    # The DR marker still fires (added by extract_conv_deep_research_meta)
+    assert metadata["deep_research"] is True
+    # Per-turn timestamp on the assistant turn matches the
+    # report_message's create_time (not the tool wrapper's 1.5)
+    assert "2026-06-01T13:36:40" in md or "1780275400" in str(msgs)
+    # Per-turn GPT signal inherited from the report_message
+    asst_msgs = [m for m in msgs if m["role"] == "assistant"]
+    assert any(m.get("model_slug") == "gpt-5-2-instant" for m in asst_msgs)
+
+
+def test_integration_dr_with_only_plan_no_body_no_artifact_rendered(tmp_path):
+    """widget_state without report_message → marker still emitted (from
+    other DR signals) but no synthetic assistant body added. Mirrors
+    the case where the research is still in progress at fetch time."""
+    ws_dict = {
+        "plan": {"plan_id": "p", "version": 1, "title": "T", "steps": []},
+        "status": "running",
+        # No report_message
+    }
+    conv = {
+        "id": "x", "conversation_id": "x", "title": "Plan only",
+        "create_time": 1.0, "update_time": 2.0,
+        "default_model_slug": "gpt-5-thinking",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {"id": "u1", "parent": None, "children": ["a1"],
+                   "message": {"id": "u1", "author": {"role": "user"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text", "parts": ["q"]},
+                               "metadata": {"deep_research_version": "standard"}}},
+            "a1": {"id": "a1", "parent": "u1", "children": ["tool-1"],
+                   "message": {"id": "a1", "author": {"role": "assistant"},
+                               "create_time": 1.0,
+                               "content": {"content_type": "text", "parts": ["wait"]},
+                               "metadata": {}}},
+            "tool-1": {"id": "tool-1", "parent": "a1", "children": [],
+                        "message": {"id": "tool-1", "author": {"role": "tool"},
+                                     "content": {"content_type": "code",
+                                                  "parts": None},
+                                     "metadata": {
+                                         "chatgpt_sdk": {
+                                             "widget_state": json.dumps(ws_dict),
+                                         },
+                                     },
+                                     "recipient": "all"}},
+        },
+    }
+    ex = _extractor(tmp_path)
+    metadata, msgs, _json = ex.process_conversation(conv)
+    md = ex.generate_markdown(metadata, msgs)
+    # The "wait" assistant body is still there (normal path)
+    assert "wait" in md
+    # No DR body landed because widget_state had no report_message
+    assert "report_message" not in md
+    # DR marker still fires from deep_research_version on the user msg
+    assert metadata["deep_research"] is True
 
 
 def test_integration_atmention_emits_gpt_id_in_per_turn(tmp_path):

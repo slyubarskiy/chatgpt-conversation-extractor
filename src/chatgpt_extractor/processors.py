@@ -35,11 +35,19 @@ class MessageProcessor:
         if author_role == "system" and not self.is_user_system_message(msg):
             return True
 
-        # Filter tool messages unless they contain DALL-E images
+        # Filter tool messages unless they carry user-visible content:
+        # DALL-E images (existing carve-out) OR a Deep Research artifact
+        # at metadata.chatgpt_sdk.widget_state.report_message (the
+        # rendered answer when chatgpt_sdk_suppressed_response is True
+        # on the flanking assistant turns).
         if author_role == "tool":
             content = msg.get("content", {})
-            if not self._contains_dalle_image(content):
-                return True
+            if self._contains_dalle_image(content):
+                pass  # kept
+            else:
+                from .gpt_metadata import extract_dr_report_message
+                if extract_dr_report_message(msg) is None:
+                    return True
 
         # Filter specific content types
         content = msg.get("content", {})

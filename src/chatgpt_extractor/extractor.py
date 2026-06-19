@@ -758,6 +758,7 @@ class ConversationExtractorV2:
                     processed.append(msg_data)
 
             # Tool messages included only if they contain DALL-E images
+            # OR a Deep Research artifact (widget_state.report_message).
             elif author_role == "tool":
                 content = msg.get("content", {})
                 if self.message_processor._contains_dalle_image(content):
@@ -774,6 +775,48 @@ class ConversationExtractorV2:
                             if v is not None:
                                 tool_msg_data[k] = v
                         processed.append(tool_msg_data)
+                else:
+                    # Deep Research artifact carve-out: the substantive
+                    # answer lives on a tool message at
+                    # metadata.chatgpt_sdk.widget_state.report_message
+                    # (stringified JSON). The flanking assistant turns
+                    # are empty (chatgpt_sdk_suppressed_response: True),
+                    # so without this branch the body is silently dropped
+                    # — the vault gets a 59-line stub.
+                    from .gpt_metadata import (
+                        extract_dr_report_message,
+                        extract_msg_gpt_signals,
+                    )
+
+                    report_msg = extract_dr_report_message(msg)
+                    if report_msg:
+                        rm_parts = (
+                            (report_msg.get("content") or {}).get("parts") or []
+                        )
+                        text = "\n\n".join(
+                            p for p in rm_parts if isinstance(p, str) and p
+                        )
+                        if text:
+                            dr_data = {"role": "assistant", "content": text}
+                            # Inherit per-turn signals from the
+                            # report_message's own metadata (its
+                            # model_slug / gizmo_id / plugin_namespace
+                            # describe the synthesis turn, not the
+                            # surrounding tool-call wrapper).
+                            if (rct := report_msg.get("create_time")) is not None:
+                                dr_data["create_time"] = rct
+                            for k, v in extract_msg_gpt_signals(report_msg).items():
+                                if v is not None:
+                                    dr_data[k] = v
+                            # Citations from the research live on the
+                            # report_message — preserve via the standard
+                            # MessageProcessor helper.
+                            citations = self.message_processor.extract_citations(
+                                report_msg
+                            )
+                            if citations:
+                                dr_data["citations"] = citations
+                            processed.append(dr_data)
 
         return processed
 
