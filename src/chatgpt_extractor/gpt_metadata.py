@@ -38,6 +38,7 @@ sidecar file.
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -102,6 +103,56 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
 
 _DEEP_RESEARCH_PINEAPPLE_URI = "connectors://connector_openai_deep_research"
 _DEEP_RESEARCH_ATTRIBUTION_ID = "connector_openai_deep_research"
+
+
+def extract_dr_report_message(api_msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """For a ``tool`` message, parse Deep Research widget state and return
+    the embedded report message (the actual answer the user sees) or None.
+
+    ChatGPT renders the Deep Research artifact on a *tool* message at
+    ``metadata.chatgpt_sdk.widget_state``, which is a JSON-stringified
+    dict whose ``report_message`` field carries the substantive
+    markdown answer at ``content.parts[0]``. Empirically verified
+    against the example conversation ``6a1cd528`` whose 37 KB
+    *"# Detectability of VLESS Vision TCP Raw REALITY Under Chinese TLS
+    Policing"* artifact lives nowhere else in the conversation document.
+
+    The function is defensive: any of the following shapes returns
+    ``None`` silently (a bad widget_state must not break the extractor):
+
+    - ``api_msg`` is not a tool-role message
+    - ``metadata.chatgpt_sdk.widget_state`` missing or not a string
+    - ``widget_state`` not parseable as JSON
+    - parsed dict missing ``report_message`` or with empty parts
+
+    Returns the ``report_message`` dict on success — already shaped like
+    a regular ChatGPT message (``author``, ``content``, ``create_time``,
+    ``metadata``), ready for the extractor's standard processing pipeline
+    to treat as an assistant turn.
+    """
+    if not isinstance(api_msg, dict):
+        return None
+    if (api_msg.get("author") or {}).get("role") != "tool":
+        return None
+    meta = api_msg.get("metadata") or {}
+    sdk = meta.get("chatgpt_sdk") or {}
+    ws_str = sdk.get("widget_state")
+    if not isinstance(ws_str, str) or not ws_str:
+        return None
+    try:
+        ws = _json.loads(ws_str)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(ws, dict):
+        return None
+    report_msg = ws.get("report_message")
+    if not isinstance(report_msg, dict):
+        return None
+    parts = ((report_msg.get("content") or {}).get("parts")) or []
+    has_text = any(isinstance(p, str) and p for p in parts)
+    if not has_text:
+        return None
+    return report_msg
 
 
 def extract_conv_deep_research_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
