@@ -437,10 +437,26 @@ class ConversationExtractorV2:
 
         metadata["title"] = conv.get("title", "Untitled Conversation")
 
+        # Emit timestamps as true UTC. A prior version of this code used
+        # ``datetime.fromtimestamp(t).isoformat() + "Z"`` which returns local
+        # wall time (naive) and then falsely labelled it UTC — the resulting
+        # frontmatter values were off by the operator's local UTC offset
+        # (e.g. +1h under BST). Passing ``tz=timezone.utc`` makes the value
+        # authoritative regardless of host timezone; the ``+00:00`` suffix
+        # is replaced with ``Z`` to keep the byte-level layout consumers
+        # already parse (matches _format_per_turn_ts).
         if create_time := conv.get("create_time"):
-            metadata["created"] = datetime.fromtimestamp(create_time).isoformat() + "Z"
+            metadata["created"] = (
+                datetime.fromtimestamp(create_time, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
         if update_time := conv.get("update_time"):
-            metadata["updated"] = datetime.fromtimestamp(update_time).isoformat() + "Z"
+            metadata["updated"] = (
+                datetime.fromtimestamp(update_time, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
 
         if model := conv.get("default_model_slug"):
             metadata["model"] = model
@@ -669,12 +685,11 @@ class ConversationExtractorV2:
     def _format_per_turn_ts(unix_seconds: float) -> str:
         """Format a Unix timestamp as ISO-8601 UTC for per-turn rendering.
 
-        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``). The
-        conversation-level ``created`` / ``updated`` fields in YAML
-        frontmatter use a different convention (naive ``fromtimestamp`` +
-        ``"Z"`` suffix, which mislabels local-wall-time as UTC). Per-turn
-        timestamps are emitted correctly here; reconciling the two formats
-        within a single file is a deferred follow-up tracked elsewhere.
+        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``),
+        matching the conversation-level ``created`` / ``updated`` fields
+        in YAML frontmatter. Both surfaces emit true UTC as of the TZ-skew
+        fix; a previous version of frontmatter used naive local wall time
+        (mislabelled ``"Z"``), and this divergence has been removed.
         """
         return (
             datetime.fromtimestamp(unix_seconds, tz=timezone.utc)

@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_time`, matching "the assistant began replying" semantics.
 
 ### Fixed
+- Frontmatter `created:` and `updated:` are now emitted as true UTC
+  regardless of host timezone. Prior to this change, `extract_metadata`
+  called `datetime.fromtimestamp(t).isoformat() + "Z"`, which returns
+  local wall time and then falsely labelled it UTC — outputs were off
+  by the host's local UTC offset (e.g. +1h under BST). Per-turn body
+  timestamps were already correct; this restores file-internal
+  consistency between the two surfaces. Parametric test coverage
+  across UTC, Europe/London, US/Pacific, and Asia/Kolkata asserts
+  the byte-level output is identical to what a UTC-set host produces.
 - `g-p-*` (project) ids no longer leak into the per-turn `gpt:`
   segment of project conversations (PR #8). Per-message metadata in
   project convs echoes the project id as `gizmo_id`; the segment now
