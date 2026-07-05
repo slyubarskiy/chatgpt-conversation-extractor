@@ -263,7 +263,7 @@ data/output/logs/
 3. **`--config`** is a single source of truth across runs — set the xlsx path there once.
 4. **Project subfolders** are named by raw `g-p-*` id; the live-sync layer renames them post-extract.
 5. **`--no-gpt-metadata`** reverts to pre-2026 output if you depend on the older shape.
-6. **Per-turn timestamps** are emitted in true UTC; the conversation-level `updated:` field in frontmatter uses local-wall-time-mislabeled-Z (legacy quirk).
+6. **Timestamps** — both per-turn (italic) and conversation-level (frontmatter `created:` / `updated:`) are emitted as true UTC. A prior version of the frontmatter fields used local wall time mislabelled as `Z`; that has been fixed.
 
 ---
 *v3.2-dev | Python 3.9+ | PyYAML required | openpyxl optional (for GPT_Names.xlsx)*
