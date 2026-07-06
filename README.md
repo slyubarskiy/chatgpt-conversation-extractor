@@ -17,9 +17,13 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 
 ## Requirements
 
-- Python 3.8+
-- PyYAML (`pip install pyyaml`)
+- Python 3.9+
 - 2GB+ RAM for large exports (500MB+ JSON files)
+
+Python dependencies (`PyYAML`, plus the extractor package itself) are
+installed by the `pip install -e .` step in **Quick Start** below.
+Optional: `openpyxl` if you plan to use the `--gpt-names-xlsx` sidecar
+feature.
 
 ## Getting Your ChatGPT Data
 
@@ -31,8 +35,12 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 ## Quick Start
 
 ```bash
-# Install dependencies
-pip install pyyaml
+# One-time install
+git clone https://github.com/slyubarskiy/chatgpt-conversation-extractor.git
+cd chatgpt-conversation-extractor
+python -m venv .venv
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
+pip install -e .                  # installs the chatgpt_extractor package + PyYAML
 
 # Default: extract to Markdown
 python -m chatgpt_extractor data/raw/conversations.json data/output
