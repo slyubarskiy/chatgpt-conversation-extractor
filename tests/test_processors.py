@@ -251,6 +251,58 @@ class TestMessageProcessor:
         assert "https://refs.example.com/source" in urls
         assert "https://refs.example.com/supporting" in urls
 
+    def test_extract_web_urls_dedupes_chatgpt_utm_source(self, processor):
+        """Test dedupe across clean and ChatGPT-tracked URL variants."""
+        msg = {
+            "content": {"content_type": "text"},
+            "metadata": {
+                "citations": [
+                    {
+                        "metadata": {
+                            "url": (
+                                "https://example.com/article"
+                                "?utm_source=chatgpt.com"
+                            )
+                        }
+                    }
+                ],
+                "content_references": [
+                    {
+                        "sources": [
+                            {"url": "https://example.com/article"},
+                        ],
+                    }
+                ],
+            },
+        }
+        urls = processor.extract_web_urls(msg)
+        assert urls.count("https://example.com/article") == 1
+        assert "https://example.com/article?utm_source=chatgpt.com" not in urls
+
+    def test_extract_web_urls_dedupes_text_fragments(self, processor):
+        """Test dedupe across clean and text-fragment URL variants."""
+        msg = {
+            "content": {
+                "content_type": "text",
+                "parts": [
+                    (
+                        "See https://example.com/article"
+                        "#:~:text=Highlighted%20words"
+                    )
+                ],
+            },
+            "metadata": {
+                "safe_urls": [
+                    "https://example.com/article",
+                    "https://example.com/section#intro:~:text=Highlighted%20words",
+                ],
+            },
+        }
+        urls = processor.extract_web_urls(msg)
+        assert urls.count("https://example.com/article") == 1
+        assert "https://example.com/article#:~:text=Highlighted%20words" not in urls
+        assert "https://example.com/section#intro" in urls
+
     def test_extract_file_names_from_attachments(self, processor):
         """Test file name extraction from attachments."""
         msg = {

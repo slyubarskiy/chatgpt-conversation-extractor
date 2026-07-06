@@ -3,6 +3,7 @@ Message processing components for content extraction and filtering.
 """
 
 import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Dict, List, Optional, Any
 
 from .trackers import SchemaEvolutionTracker
@@ -329,6 +330,11 @@ class MessageProcessor:
         """
         urls = set()
 
+        def add_url(value: Any) -> None:
+            normalized = self._normalize_web_url(value)
+            if normalized:
+                urls.add(normalized)
+
         content = msg.get("content", {})
         content_type = content.get("content_type", "")
         metadata = msg.get("metadata", {})
@@ -337,9 +343,9 @@ class MessageProcessor:
         if content_type == "tether_quote":
             # Extract from tether_quote
             if url := content.get("url"):
-                urls.add(url)
+                add_url(url)
             if domain := content.get("domain"):
-                urls.add(f"https://{domain}")
+                add_url(f"https://{domain}")
 
         elif content_type == "tether_browsing_display":
             # Check result field for URLs
@@ -347,18 +353,19 @@ class MessageProcessor:
                 # Critical: Use module-level 're' (local import caused 89% of failures)
                 url_pattern = r'https?://[^\s<>"]+'
                 found_urls = re.findall(url_pattern, str(result))
-                urls.update(found_urls)
+                for url in found_urls:
+                    add_url(url)
 
             # Check for URL in other fields
             if url := content.get("url"):
-                urls.add(url)
+                add_url(url)
 
         elif content_type == "sonic_webpage":
             # Extract from sonic webpage
             if url := content.get("url"):
-                urls.add(url)
+                add_url(url)
             if domain := content.get("domain"):
-                urls.add(f"https://{domain}")
+                add_url(f"https://{domain}")
 
         # Generic URL extraction from any content type
         # Check citations
@@ -366,7 +373,7 @@ class MessageProcessor:
         for citation in citations:
             if citation_meta := citation.get("metadata"):
                 if url := citation_meta.get("url"):
-                    urls.add(url)
+                    add_url(url)
 
         # Newer exports often attach URLs to message metadata instead of
         # conversation-level safe_urls. Collect those explicit paths too.
@@ -381,21 +388,46 @@ class MessageProcessor:
                         # Extract URLs from text parts
                         url_pattern = r'https?://[^\s<>"]+'
                         found_urls = re.findall(url_pattern, part)
-                        urls.update(found_urls)
+                        for url in found_urls:
+                            add_url(url)
 
         # Check conversation-level safe_urls
         if conv_data and "safe_urls" in conv_data:
-            urls.update(conv_data["safe_urls"])
+            for url in conv_data["safe_urls"]:
+                add_url(url)
 
         return sorted(list(urls))
+
+    @staticmethod
+    def _normalize_web_url(value: Any) -> Optional[str]:
+        """Normalize noisy ChatGPT URL variants for dedupe."""
+        if not isinstance(value, str) or not value.startswith(("http://", "https://")):
+            return None
+
+        parts = urlsplit(value)
+        query = urlencode(
+            [
+                (key, val)
+                for key, val in parse_qsl(parts.query, keep_blank_values=True)
+                if not (key.lower() == "utm_source" and val.lower() == "chatgpt.com")
+            ],
+            doseq=True,
+        )
+
+        fragment = parts.fragment
+        if ":~:text=" in fragment:
+            fragment = fragment.split(":~:text=", 1)[0]
+
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
 
     def _extract_metadata_urls(self, metadata: Dict[str, Any]) -> List[str]:
         """Extract URLs from newer message metadata structures."""
         urls = set()
 
         def add_url(value: Any) -> None:
-            if isinstance(value, str) and value.startswith(("http://", "https://")):
-                urls.add(value)
+            normalized = self._normalize_web_url(value)
+            if normalized:
+                urls.add(normalized)
 
         # Direct message-level safe_urls
         for url in metadata.get("safe_urls", []) or []:
