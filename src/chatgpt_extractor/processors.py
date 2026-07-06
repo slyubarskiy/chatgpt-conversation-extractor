@@ -4,8 +4,9 @@ Message processing components for content extraction and filtering.
 
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
+from .config import WEB_URLS_KEYS
 from .trackers import SchemaEvolutionTracker
 
 
@@ -314,89 +315,235 @@ class MessageProcessor:
         return citations
 
     def extract_web_urls(
-        self, msg: Dict[str, Any], conv_data: Optional[Dict[str, Any]] = None
+        self,
+        msg: Dict[str, Any],
+        conv_data: Optional[Dict[str, Any]] = None,
+        web_urls_cfg: Optional[Dict[str, str]] = None,
     ) -> List[str]:
         """Extract web URLs from message and conversation metadata.
 
-        Sources checked:
-        1. Citation metadata URLs
-        2. Message metadata safe_urls
-        3. Message search_result_groups / content_references URLs
-        4. Conversation safe_urls
-        5. Content URL fields (tether_quote, sonic_webpage)
-        6. Content domain fields
-        7. Content result text (regex)
-        8. Parts array text (regex)
+        ``web_urls_cfg``: optional per-type level map (see ``config.py``).
+        When ``None`` (backward-compatible default matching PR #17), all
+        metadata sources contribute their URLs at minimal level.
+
+        Sources checked (config-gated):
+        1. Citation metadata URLs (``citations`` config key)
+        2. Message metadata safe_urls (``msg_safe_urls``)
+        3. search_result_groups entries + supporting_websites (``search_result_groups``)
+        4. content_references + nested sources + supporting_websites (``content_references``)
+        5. Conversation-level safe_urls (``conv_safe_urls``)
+
+        Sources always checked (not config-gated):
+        - Content URL / domain fields (tether_quote, sonic_webpage)
+        - Content result text regex (tether_browsing_display)
+        - Parts array text regex
         """
-        urls = set()
+        urls, _ = self._walk_url_sources(msg, conv_data, web_urls_cfg)
+        return urls
+
+    def extract_web_sources(
+        self,
+        msg: Dict[str, Any],
+        web_urls_cfg: Optional[Dict[str, str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Extract rich URL sources (title + url + snippet + attribution).
+
+        Returns entries only for source types configured at ``rich`` level.
+        Each entry: ``{"source": "citations"|"search_result_groups"|
+        "content_references", "url": str, "title"?, "snippet"?,
+        "attribution"?, "domain"?, "quote"?, "type"?}``.
+
+        When ``web_urls_cfg`` is ``None`` (backward-compatible default), no
+        rich entries are extracted — this preserves PR #17 behavior.
+        Callers wanting rich sources must supply a config.
+        """
+        _, sources = self._walk_url_sources(msg, None, web_urls_cfg)
+        return sources
+
+    def _walk_url_sources(
+        self,
+        msg: Dict[str, Any],
+        conv_data: Optional[Dict[str, Any]],
+        web_urls_cfg: Optional[Dict[str, str]],
+    ) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """Single-pass walk over URL-carrying sources.
+
+        Returns ``(urls, rich_sources)`` in one traversal. Called once per
+        message from ``process_messages`` to avoid double-walking metadata
+        on large exports.
+
+        Level semantics per source:
+        - ``off``: source contributes nothing (not even URLs).
+        - ``minimal``: URLs added to the deduped set only.
+        - ``rich``: URLs added AND a rich source dict appended (only for
+          rich-capable types: citations, search_result_groups,
+          content_references). URL-only source types (safe_urls,
+          supporting_websites) silently degrade ``rich`` to ``minimal``.
+
+        Legacy fallback: when ``web_urls_cfg`` is ``None``, every source
+        runs at minimal level (URL-only, no rich entries) — matches
+        PR #17 behavior byte-for-byte for existing callers.
+        """
+        urls: set = set()
+        rich_sources: List[Dict[str, Any]] = []
 
         def add_url(value: Any) -> None:
             normalized = self._normalize_web_url(value)
             if normalized:
                 urls.add(normalized)
 
-        content = msg.get("content", {})
+        # Legacy caller (web_urls_cfg=None): all metadata sources at minimal.
+        # This preserves PR #17 behavior exactly for the extract_web_urls
+        # backward-compat contract.
+        if web_urls_cfg is None:
+            cfg = {k: "minimal" for k in WEB_URLS_KEYS}
+        else:
+            cfg = web_urls_cfg
+
+        content = msg.get("content") or {}
         content_type = content.get("content_type", "")
-        metadata = msg.get("metadata", {})
+        metadata = msg.get("metadata") or {}
 
-        # Different extraction based on content type
+        # ---- Content-type-specific paths (NOT config-gated — baseline extraction) ----
         if content_type == "tether_quote":
-            # Extract from tether_quote
             if url := content.get("url"):
                 add_url(url)
             if domain := content.get("domain"):
                 add_url(f"https://{domain}")
-
         elif content_type == "tether_browsing_display":
-            # Check result field for URLs
             if result := content.get("result"):
-                # Critical: Use module-level 're' (local import caused 89% of failures)
-                url_pattern = r'https?://[^\s<>"]+'
-                found_urls = re.findall(url_pattern, str(result))
-                for url in found_urls:
-                    add_url(url)
-
-            # Check for URL in other fields
+                # Critical: use module-level 're' (local import caused 89% of failures)
+                for u in re.findall(r'https?://[^\s<>"]+', str(result)):
+                    add_url(u)
             if url := content.get("url"):
                 add_url(url)
-
         elif content_type == "sonic_webpage":
-            # Extract from sonic webpage
             if url := content.get("url"):
                 add_url(url)
             if domain := content.get("domain"):
                 add_url(f"https://{domain}")
 
-        # Generic URL extraction from any content type
-        # Check citations
-        citations = metadata.get("citations", [])
-        for citation in citations:
-            if citation_meta := citation.get("metadata"):
-                if url := citation_meta.get("url"):
-                    add_url(url)
+        # ---- Citations (config-gated) ----
+        # At "rich" level, citations feed the existing Citations block
+        # via ``extract_citations`` (called in ``process_messages``) —
+        # they are NOT duplicated into ``rich_sources`` here. The Sources
+        # block is exclusively for search_result_groups + content_references.
+        # This walk only contributes URLs to the dedup set.
+        cit_level = cfg.get("citations", "off")
+        if cit_level != "off":
+            for citation in metadata.get("citations", []) or []:
+                if not isinstance(citation, dict):
+                    continue
+                cm = citation.get("metadata") or {}
+                url = cm.get("url")
+                if not url:
+                    continue
+                add_url(url)
 
-        # Newer exports often attach URLs to message metadata instead of
-        # conversation-level safe_urls. Collect those explicit paths too.
-        urls.update(self._extract_metadata_urls(metadata))
-
-        # Check parts for text containing URLs
+        # ---- Regex over string parts (NOT config-gated — baseline extraction) ----
         if "parts" in content:
             parts = content.get("parts", [])
             if isinstance(parts, list):
                 for part in parts:
                     if isinstance(part, str):
-                        # Extract URLs from text parts
-                        url_pattern = r'https?://[^\s<>"]+'
-                        found_urls = re.findall(url_pattern, part)
-                        for url in found_urls:
-                            add_url(url)
+                        for u in re.findall(r'https?://[^\s<>"]+', part):
+                            add_url(u)
 
-        # Check conversation-level safe_urls
-        if conv_data and "safe_urls" in conv_data:
-            for url in conv_data["safe_urls"]:
-                add_url(url)
+        # ---- Conv-level safe_urls (config-gated, URL-only) ----
+        if cfg.get("conv_safe_urls", "off") != "off":
+            if conv_data and isinstance(conv_data.get("safe_urls"), list):
+                for u in conv_data["safe_urls"]:
+                    add_url(u)
 
-        return sorted(list(urls))
+        # ---- Msg-level safe_urls (config-gated, URL-only) ----
+        if cfg.get("msg_safe_urls", "off") != "off":
+            for u in metadata.get("safe_urls", []) or []:
+                add_url(u)
+
+        # ---- search_result_groups (config-gated, rich-capable) ----
+        srg_level = cfg.get("search_result_groups", "off")
+        if srg_level != "off":
+            for group in metadata.get("search_result_groups", []) or []:
+                if not isinstance(group, dict):
+                    continue
+                domain = group.get("domain")
+                for entry in group.get("entries", []) or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    url = entry.get("url")
+                    if url:
+                        add_url(url)
+                        if srg_level == "rich":
+                            entry_dict: Dict[str, Any] = {
+                                "source": "search_result_groups",
+                                "url": self._normalize_web_url(url) or url,
+                            }
+                            if t := entry.get("title"):
+                                entry_dict["title"] = t
+                            if s := entry.get("snippet"):
+                                entry_dict["snippet"] = s
+                            if a := entry.get("attribution"):
+                                entry_dict["attribution"] = a
+                            if domain:
+                                entry_dict["domain"] = domain
+                            rich_sources.append(entry_dict)
+                    # supporting_websites inherit parent's level (URL-only)
+                    for site in entry.get("supporting_websites", []) or []:
+                        if isinstance(site, dict):
+                            add_url(site.get("url"))
+
+        # ---- content_references (config-gated, rich-capable) ----
+        # Sub-types observed in real exports:
+        #   webpage_extended  → top-level url + title + snippet + attribution
+        #   sources_footnote  → nested sources[] with title + url + attribution
+        #   grouped_webpages  → matched_text + items (usually empty)
+        #   image_inline      → no URLs, skip
+        cr_level = cfg.get("content_references", "off")
+        if cr_level != "off":
+            for ref in metadata.get("content_references", []) or []:
+                if not isinstance(ref, dict):
+                    continue
+                # webpage_extended: top-level url + title + snippet
+                if url := ref.get("url"):
+                    add_url(url)
+                    if cr_level == "rich":
+                        entry_dict = {
+                            "source": "content_references",
+                            "url": self._normalize_web_url(url) or url,
+                        }
+                        if t := ref.get("title"):
+                            entry_dict["title"] = t
+                        if s := ref.get("snippet"):
+                            entry_dict["snippet"] = s
+                        if a := ref.get("attribution"):
+                            entry_dict["attribution"] = a
+                        rich_sources.append(entry_dict)
+                # Ref-level safe_urls (URL-only)
+                for u in ref.get("safe_urls", []) or []:
+                    add_url(u)
+                # sources_footnote nested sources
+                for source in ref.get("sources", []) or []:
+                    if not isinstance(source, dict):
+                        continue
+                    src_url = source.get("url")
+                    if src_url:
+                        add_url(src_url)
+                        if cr_level == "rich":
+                            entry_dict = {
+                                "source": "content_references",
+                                "url": self._normalize_web_url(src_url) or src_url,
+                            }
+                            if t := source.get("title"):
+                                entry_dict["title"] = t
+                            if a := source.get("attribution"):
+                                entry_dict["attribution"] = a
+                            rich_sources.append(entry_dict)
+                    # supporting_websites nested under sources (URL-only)
+                    for site in source.get("supporting_websites", []) or []:
+                        if isinstance(site, dict):
+                            add_url(site.get("url"))
+
+        return sorted(urls), rich_sources
 
     @staticmethod
     def _normalize_web_url(value: Any) -> Optional[str]:
@@ -419,47 +566,6 @@ class MessageProcessor:
             fragment = fragment.split(":~:text=", 1)[0]
 
         return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
-
-    def _extract_metadata_urls(self, metadata: Dict[str, Any]) -> List[str]:
-        """Extract URLs from newer message metadata structures."""
-        urls = set()
-
-        def add_url(value: Any) -> None:
-            normalized = self._normalize_web_url(value)
-            if normalized:
-                urls.add(normalized)
-
-        # Direct message-level safe_urls
-        for url in metadata.get("safe_urls", []) or []:
-            add_url(url)
-
-        # Search result metadata from tool / assistant messages
-        for group in metadata.get("search_result_groups", []) or []:
-            if not isinstance(group, dict):
-                continue
-            for entry in group.get("entries", []) or []:
-                if not isinstance(entry, dict):
-                    continue
-                add_url(entry.get("url"))
-                for site in entry.get("supporting_websites", []) or []:
-                    if isinstance(site, dict):
-                        add_url(site.get("url"))
-
-        # Content references used by newer exports for sources footnotes
-        for ref in metadata.get("content_references", []) or []:
-            if not isinstance(ref, dict):
-                continue
-            for url in ref.get("safe_urls", []) or []:
-                add_url(url)
-            for source in ref.get("sources", []) or []:
-                if not isinstance(source, dict):
-                    continue
-                add_url(source.get("url"))
-                for site in source.get("supporting_websites", []) or []:
-                    if isinstance(site, dict):
-                        add_url(site.get("url"))
-
-        return sorted(urls)
 
     def extract_file_names(self, msg: Dict[str, Any]) -> List[str]:
         """Extract uploaded file names from message attachments."""
