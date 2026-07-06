@@ -90,6 +90,46 @@ class TestConversationExtractorV2:
         assert "updated" in metadata
         assert metadata["chat_url"] == "https://chatgpt.com/c/test-conv-001"
 
+    @pytest.mark.parametrize("tz_name", ["UTC", "Europe/London", "US/Pacific", "Asia/Kolkata"])
+    def test_extract_metadata_timestamps_are_true_utc(
+        self, temp_dirs, sample_data, monkeypatch, tz_name
+    ):
+        """Frontmatter ``created`` / ``updated`` are true UTC regardless of
+        host timezone. Regression guard against a prior bug that emitted
+        ``datetime.fromtimestamp(t).isoformat() + "Z"`` — naive local
+        wall time falsely labelled as UTC. Under BST the resulting value
+        was +1h ahead of reality; under IST it was +5:30 ahead. This
+        test drives four representative TZs (zero offset, +1h summer,
+        negative offset, non-hour-aligned offset) and asserts the byte-
+        level output is identical to what UTC would produce.
+        """
+        import time as _time_mod
+        # tzset() is POSIX-only; skip cleanly on Windows CI runners.
+        if not hasattr(_time_mod, "tzset"):
+            pytest.skip("time.tzset() not available (Windows) — TZ envvar has no effect")
+        monkeypatch.setenv("TZ", tz_name)
+        _time_mod.tzset()
+
+        input_file, output_dir = temp_dirs
+        # Deterministic epochs the ChatGPT API uses (seconds since 1970):
+        # 1704067200 = 2024-01-01T00:00:00Z, 1704153600 = 2024-01-02T00:00:00Z.
+        conv = {
+            "id": "tz-test",
+            "title": "TZ Test",
+            "create_time": 1704067200,
+            "update_time": 1704153600,
+            "mapping": {},
+        }
+        with open(input_file, "w") as f:
+            json.dump([conv], f)
+        extractor = ConversationExtractorV2(str(input_file), str(output_dir))
+        metadata = extractor.extract_metadata(conv)
+
+        assert metadata["created"] == "2024-01-01T00:00:00Z", \
+            f"created was {metadata['created']!r} under TZ={tz_name}"
+        assert metadata["updated"] == "2024-01-02T00:00:00Z", \
+            f"updated was {metadata['updated']!r} under TZ={tz_name}"
+
     def test_backward_traverse(self, temp_dirs, sample_data):
         """Test backward traversal of conversation graph."""
         input_file, output_dir = temp_dirs
@@ -172,6 +212,54 @@ class TestConversationExtractorV2:
         assert processed[0]["role"] == "system"
         assert processed[1]["role"] == "user"
         assert processed[2]["role"] == "assistant"
+
+    def test_extract_metadata_survives_explicit_null_title(self, temp_dirs):
+        """Regression guard for the null-title fix landed in PR #2.
+
+        Some OpenAI exports contain conversations whose ``title`` field is
+        present with an explicit ``null`` value (as opposed to omitted).
+        ``dict.get("title", "Untitled")`` returns the default ONLY when the
+        key is missing — an explicit ``None`` value passes through and later
+        crashes ``re.sub`` in ``sanitize_filename`` and slicing in
+        ``extract_all``'s failure logging. The fix uses
+        ``conv.get("title") or "Untitled"`` in five call sites and widens
+        ``sanitize_filename``'s signature to accept ``Optional[str]``.
+        """
+        input_file, output_dir = temp_dirs
+        conv = {
+            "id": "null-title-conv",
+            "title": None,  # explicit null — the key exists but has no value
+            "create_time": 1704067200,
+            "update_time": 1704067200,
+            "mapping": {
+                "n1": {"id": "n1", "parent": None, "children": ["n2"], "message": None},
+                "n2": {
+                    "id": "n2",
+                    "parent": "n1",
+                    "children": [],
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"content_type": "text", "parts": ["Hi"]},
+                    },
+                },
+            },
+            "current_node": "n2",
+        }
+        with open(input_file, "w") as f:
+            json.dump([conv], f)
+        extractor = ConversationExtractorV2(str(input_file), str(output_dir))
+
+        # extract_metadata substitutes the fallback title
+        metadata = extractor.extract_metadata(conv)
+        assert metadata["title"] == "Untitled Conversation"
+
+        # sanitize_filename tolerates None directly
+        assert extractor.sanitize_filename(None) == "untitled"
+
+        # extract_all completes without raising the historical TypeError
+        extractor.extract_all()
+        # And a file actually got written under the fallback name
+        assert any((output_dir / "md").glob("Untitled Conversation*.md"))
 
     def test_generate_markdown(self, temp_dirs, sample_data):
         """Test markdown generation."""

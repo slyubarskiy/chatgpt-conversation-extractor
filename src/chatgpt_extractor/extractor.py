@@ -340,7 +340,7 @@ class ConversationExtractorV2:
                 progress.update(success=True)
             except Exception as e:
                 conv_id = conv.get("id", conv.get("conversation_id", "unknown"))
-                title = conv.get("title", "Untitled")[:50]
+                title = (conv.get("title") or "Untitled")[:50]
                 self.log_conversion_failure(conv, conv_id, title, e)
                 progress.update(success=False)
 
@@ -435,12 +435,28 @@ class ConversationExtractorV2:
 
         metadata["id"] = conv.get("id", conv.get("conversation_id", "unknown"))
 
-        metadata["title"] = conv.get("title", "Untitled Conversation")
+        metadata["title"] = conv.get("title") or "Untitled Conversation"
 
+        # Emit timestamps as true UTC. A prior version of this code used
+        # ``datetime.fromtimestamp(t).isoformat() + "Z"`` which returns local
+        # wall time (naive) and then falsely labelled it UTC — the resulting
+        # frontmatter values were off by the operator's local UTC offset
+        # (e.g. +1h under BST). Passing ``tz=timezone.utc`` makes the value
+        # authoritative regardless of host timezone; the ``+00:00`` suffix
+        # is replaced with ``Z`` to keep the byte-level layout consumers
+        # already parse (matches _format_per_turn_ts).
         if create_time := conv.get("create_time"):
-            metadata["created"] = datetime.fromtimestamp(create_time).isoformat() + "Z"
+            metadata["created"] = (
+                datetime.fromtimestamp(create_time, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
         if update_time := conv.get("update_time"):
-            metadata["updated"] = datetime.fromtimestamp(update_time).isoformat() + "Z"
+            metadata["updated"] = (
+                datetime.fromtimestamp(update_time, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
 
         if model := conv.get("default_model_slug"):
             metadata["model"] = model
@@ -669,12 +685,11 @@ class ConversationExtractorV2:
     def _format_per_turn_ts(unix_seconds: float) -> str:
         """Format a Unix timestamp as ISO-8601 UTC for per-turn rendering.
 
-        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``). The
-        conversation-level ``created`` / ``updated`` fields in YAML
-        frontmatter use a different convention (naive ``fromtimestamp`` +
-        ``"Z"`` suffix, which mislabels local-wall-time as UTC). Per-turn
-        timestamps are emitted correctly here; reconciling the two formats
-        within a single file is a deferred follow-up tracked elsewhere.
+        Uses true UTC (``datetime.fromtimestamp(t, tz=timezone.utc)``),
+        matching the conversation-level ``created`` / ``updated`` fields
+        in YAML frontmatter. Both surfaces emit true UTC as of the TZ-skew
+        fix; a previous version of frontmatter used naive local wall time
+        (mislabelled ``"Z"``), and this divergence has been removed.
         """
         return (
             datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
@@ -758,6 +773,7 @@ class ConversationExtractorV2:
                     processed.append(msg_data)
 
             # Tool messages included only if they contain DALL-E images
+            # OR a Deep Research artifact (widget_state.report_message).
             elif author_role == "tool":
                 content = msg.get("content", {})
                 if self.message_processor._contains_dalle_image(content):
@@ -774,6 +790,48 @@ class ConversationExtractorV2:
                             if v is not None:
                                 tool_msg_data[k] = v
                         processed.append(tool_msg_data)
+                else:
+                    # Deep Research artifact carve-out: the substantive
+                    # answer lives on a tool message at
+                    # metadata.chatgpt_sdk.widget_state.report_message
+                    # (stringified JSON). The flanking assistant turns
+                    # are empty (chatgpt_sdk_suppressed_response: True),
+                    # so without this branch the body is silently dropped
+                    # — the vault gets a 59-line stub.
+                    from .gpt_metadata import (
+                        extract_dr_report_message,
+                        extract_msg_gpt_signals,
+                    )
+
+                    report_msg = extract_dr_report_message(msg)
+                    if report_msg:
+                        rm_parts = (
+                            (report_msg.get("content") or {}).get("parts") or []
+                        )
+                        text = "\n\n".join(
+                            p for p in rm_parts if isinstance(p, str) and p
+                        )
+                        if text:
+                            dr_data = {"role": "assistant", "content": text}
+                            # Inherit per-turn signals from the
+                            # report_message's own metadata (its
+                            # model_slug / gizmo_id / plugin_namespace
+                            # describe the synthesis turn, not the
+                            # surrounding tool-call wrapper).
+                            if (rct := report_msg.get("create_time")) is not None:
+                                dr_data["create_time"] = rct
+                            for k, v in extract_msg_gpt_signals(report_msg).items():
+                                if v is not None:
+                                    dr_data[k] = v
+                            # Citations from the research live on the
+                            # report_message — preserve via the standard
+                            # MessageProcessor helper.
+                            citations = self.message_processor.extract_citations(
+                                report_msg
+                            )
+                            if citations:
+                                dr_data["citations"] = citations
+                            processed.append(dr_data)
 
         return processed
 
@@ -927,7 +985,7 @@ class ConversationExtractorV2:
                 lines.append("")
                 lines.append("**Citations:**")
                 for citation in msg["citations"]:
-                    title = citation.get("title", "Untitled")
+                    title = citation.get("title") or "Untitled"
                     url = citation.get("url", "")
                     type_ = citation.get("type", "webpage")
 
@@ -1013,8 +1071,12 @@ class ConversationExtractorV2:
             log_exception(self.logger, e, f"writing to {file_path}")
             raise
 
-    def sanitize_filename(self, title: str, max_length: int = 100) -> str:
+    def sanitize_filename(self, title: Optional[str], max_length: int = 100) -> str:
         """Convert title to safe filename."""
+        # Handle None title
+        if title is None:
+            title = "untitled"
+        
         # Windows/Unix forbidden characters: <>:"/\|?*
         safe_title = re.sub(r'[<>:"/\\|?*]', "_", title)
 
@@ -1186,7 +1248,7 @@ class ConversationExtractorV2:
         Returns:
             Path to the created JSON file
         """
-        title = json_data.get("title", "untitled")
+        title = json_data.get("title") or "untitled"
         safe_title = self.sanitize_filename(title)
 
         # Handle project subfolder structure
