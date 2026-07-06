@@ -164,6 +164,7 @@ failure_analysis_report.json
 # Internal documentation (requirements and technical specs)
 docs/[0-9]*.md
 session_*.md
+*.prompt.md
 ci_fixes.patch
 # Temporary local scripts and backups
 .temp_local_scripts_and_backups/
