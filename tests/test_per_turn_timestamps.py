@@ -35,20 +35,6 @@ from chatgpt_extractor.extractor import ConversationExtractorV2
 # config.load_config
 # --------------------------------------------------------------------------- #
 
-@pytest.fixture
-def _isolated_config_env(tmp_path, monkeypatch):
-    """Run config tests outside any real config file's reach.
-
-    Without this, a user with ``~/.config/chatgpt_extractor/config.yaml``
-    on disk would silently override the "no file found" assertion. We
-    point HOME and CWD at an empty tmp_path and clear the env var.
-    """
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CHATGPT_EXTRACTOR_CONFIG", raising=False)
-    return tmp_path
-
-
 def test_load_config_returns_defaults_when_no_file_found(_isolated_config_env):
     cfg = config_mod.load_config()
     assert cfg == config_mod.DEFAULTS

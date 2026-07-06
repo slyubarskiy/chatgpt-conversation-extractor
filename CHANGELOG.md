@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Per-type `web_urls` config overlay for URL extraction control.
+  Accepts a preset string (`off | citations | rich`) or an explicit
+  per-type map at YAML key `web_urls`, with per-type levels
+  `off | minimal | rich`. `off` skips the source, `minimal` extracts
+  URLs only (feeding the `**Web Search URLs:**` block), `rich`
+  extracts URL + title + snippet/quote (feeding the existing
+  `**Citations:**` block for `citations`, or a new `**Sources:**`
+  block for `search_result_groups` / `content_references`). Default
+  preserves the pre-PR-#17 behavior for backward compatibility:
+  `citations: rich`, `conv_safe_urls: minimal`, and the newer
+  metadata paths off. The `rich` preset is aimed at operators
+  indexing rendered markdown into BM25/embedding search engines
+  where inline title + snippet content is more valuable than URL
+  bulk. Markdown output applies cross-block URL dedup at render
+  time (a URL in Citations or Sources is not repeated in Web
+  Search URLs); JSON output keeps `citations`, `web_urls`, and
+  `web_sources` whole so downstream indexers don't silently lose
+  data. `_isolated_config_env` fixture promoted to conftest for
+  shared use.
+- Extract URLs from newer message metadata sources (PR #17,
+  contributor @cs224). Adds coverage for `metadata.safe_urls`,
+  `metadata.search_result_groups`, `metadata.content_references`,
+  and nested `supporting_websites`, plus a `_normalize_web_url`
+  helper that strips `?utm_source=chatgpt.com` and `#:~:text=…`
+  fragments so dedup catches near-variants across all sources.
 - Custom GPT / per-turn model / plugin metadata in output (PR #6).
   Frontmatter gains `gizmo_id`, `gizmo_type`, `models_used` (deduped
   per-message slug set). Per-turn italic line gains `· model_slug`,

@@ -224,7 +224,32 @@ Defaults can be set persistently in a YAML config. Search order:
 per_turn_timestamps: true
 gpt_metadata: true
 gpt_names_xlsx: /mnt/c/chatgpt_history/GPT_Names.xlsx
+
+# Web URL extraction control — preset string or per-type map.
+# Preset shortcuts:
+#   web_urls: off        — no URL blocks at all
+#   web_urls: citations  — only the **Citations:** block (leanest useful)
+#   web_urls: rich       — Citations + Sources blocks (title + snippet
+#                          from search_result_groups + content_references)
+# Or explicit per-type map:
+web_urls:
+  citations: rich              # off | minimal | rich  — rich = Citations block
+  conv_safe_urls: minimal      # off | minimal          — conv.safe_urls[]
+  msg_safe_urls: off           # off | minimal          — metadata.safe_urls[]
+  search_result_groups: off    # off | minimal | rich   — rich = Sources block
+  content_references: off      # off | minimal | rich   — rich = Sources block
 ```
+
+### Choosing a `web_urls` level
+
+For most users the default is fine — matches the pre-config
+behavior. If you're indexing rendered markdown into a BM25 or
+embedding-based search engine (e.g. Recoll, DocFetcher, QMD), the
+`rich` preset is worth considering: it drops URL-only bulk from
+`safe_urls` sources (low semantic signal) while surfacing titles +
+snippets from the modern web-search structures (high semantic
+signal) as a new `**Sources:**` block. If you don't want any URL
+blocks at all — indexing prose only — use `web_urls: off`.
 
 ## Understanding the Output
 

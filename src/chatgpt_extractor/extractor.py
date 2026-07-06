@@ -46,6 +46,7 @@ class ConversationExtractorV2:
         per_turn_timestamps: Optional[bool] = None,
         gpt_metadata: Optional[bool] = None,
         gpt_names_xlsx: Optional[str] = None,
+        web_urls: Optional[Union[str, Dict[str, str]]] = None,
         config_path: Optional[str] = None,
     ):
         """Initialize the extractor with multi-format configuration.
@@ -97,6 +98,18 @@ class ConversationExtractorV2:
                         the extractor never crashes on a bad sidecar.
                         ``None`` (default) reads from the config file
                         (itself defaults to ``None``, i.e. no resolution).
+            web_urls: Per-type URL-extraction control. Accepts a preset
+                        string (``off | citations | rich``) or an explicit
+                        per-type dict (see ``config.py``). ``None``
+                        (default) reads from the config file, which itself
+                        defaults to a per-type map matching pre-PR-#17
+                        behavior (citations rich + conv_safe_urls minimal
+                        + msg_safe_urls / search_result_groups /
+                        content_references off). The ``citations`` preset
+                        is the leanest useful setting for BM25/embedding
+                        indexers wanting inline citation context but no
+                        URL bulk; ``rich`` adds title + snippet blocks
+                        from search_result_groups + content_references.
             config_path: Path to a YAML config file overriding built-in
                         defaults. Searches ``$CHATGPT_EXTRACTOR_CONFIG``,
                         ``./chatgpt_extractor.yaml``, and
@@ -127,6 +140,7 @@ class ConversationExtractorV2:
             per_turn_timestamps is None
             or gpt_metadata is None
             or gpt_names_xlsx is None
+            or web_urls is None
         ):
             from .config import load_config
 
@@ -139,6 +153,15 @@ class ConversationExtractorV2:
             # ``None`` here means "no name resolution" — distinct from
             # the per_turn / gpt_metadata booleans which default True.
             gpt_names_xlsx = _cfg.get("gpt_names_xlsx") if _cfg else None
+        if web_urls is None:
+            web_urls = _cfg.get("web_urls") if _cfg else None
+        # Normalize into a fully-populated per-type dict. Preset strings +
+        # partial dicts + invalid values are resolved / logged / coerced
+        # per config._resolve_web_urls.
+        from .config import _resolve_web_urls
+        self.web_urls: Dict[str, str] = _resolve_web_urls(
+            web_urls, log=self.logger
+        )
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
         # Load the gpt_id → name map once at construct time; downstream
@@ -754,13 +777,25 @@ class ConversationExtractorV2:
                         if v is not None:
                             msg_data[k] = v
 
-                    citations = self.message_processor.extract_citations(msg)
-                    if citations:
-                        msg_data["citations"] = citations
+                    # Citations are only surfaced as the **Citations:**
+                    # block when the citations config level is "rich". At
+                    # "minimal", the URLs still contribute via
+                    # _walk_url_sources but no rich block renders. At
+                    # "off", citations aren't extracted at all.
+                    if self.web_urls.get("citations") == "rich":
+                        citations = self.message_processor.extract_citations(msg)
+                        if citations:
+                            msg_data["citations"] = citations
 
-                    web_urls = self.message_processor.extract_web_urls(msg, conv_data)
-                    if web_urls:
-                        msg_data["web_urls"] = web_urls
+                    # Single-pass URL walk — one traversal per message
+                    # halves metadata-scan cost on large exports.
+                    urls, web_sources = self.message_processor._walk_url_sources(
+                        msg, conv_data, self.web_urls
+                    )
+                    if urls:
+                        msg_data["web_urls"] = urls
+                    if web_sources:
+                        msg_data["web_sources"] = web_sources
 
                     files = self.message_processor.extract_file_names(msg)
                     if files:
@@ -879,6 +914,11 @@ class ConversationExtractorV2:
                             current["web_urls"] = []
                         current["web_urls"].extend(messages[j]["web_urls"])
 
+                    if "web_sources" in messages[j]:
+                        if "web_sources" not in current:
+                            current["web_sources"] = []
+                        current["web_sources"].extend(messages[j]["web_sources"])
+
                     j += 1
 
                 merged_msg = {"role": "assistant", "content": combined_content}
@@ -900,6 +940,18 @@ class ConversationExtractorV2:
                     merged_msg["citations"] = current["citations"]
                 if "web_urls" in current:
                     merged_msg["web_urls"] = sorted(list(set(current["web_urls"])))
+                if "web_sources" in current:
+                    # Dedupe by normalized URL — sets don't work on dicts, so
+                    # walk once and keep the first occurrence per URL.
+                    seen_urls: Set[str] = set()
+                    deduped_sources: List[Dict[str, Any]] = []
+                    for src in current["web_sources"]:
+                        u = src.get("url") if isinstance(src, dict) else None
+                        if u and u not in seen_urls:
+                            seen_urls.add(u)
+                            deduped_sources.append(src)
+                    if deduped_sources:
+                        merged_msg["web_sources"] = deduped_sources
 
                 merged.append(merged_msg)
                 i = j
@@ -981,6 +1033,10 @@ class ConversationExtractorV2:
 
             lines.append(content)
 
+            # Citations block (existing behavior — only surfaces when
+            # web_urls.citations is "rich", gated in process_messages).
+            # Collect its URLs for cross-block dedup below.
+            citation_urls: Set[str] = set()
             if "citations" in msg:
                 lines.append("")
                 lines.append("**Citations:**")
@@ -991,14 +1047,46 @@ class ConversationExtractorV2:
 
                     if url:
                         lines.append(f"- [{type_}] {title} - {url}")
+                        citation_urls.add(url)
                     else:
                         lines.append(f"- [{type_}] {title}")
 
-            if "web_urls" in msg and msg["web_urls"]:
+            # Sources block (new — rich extraction from search_result_groups
+            # + content_references at "rich" level). Format:
+            #   - [title](url) — snippet
+            # Snippet omitted if absent; title falls back to url host.
+            source_urls: Set[str] = set()
+            if "web_sources" in msg and msg["web_sources"]:
                 lines.append("")
-                lines.append("**Web Search URLs:**")
-                for url in msg["web_urls"]:
-                    lines.append(f"- {url}")
+                lines.append("**Sources:**")
+                for src in msg["web_sources"]:
+                    if not isinstance(src, dict):
+                        continue
+                    url = src.get("url") or ""
+                    title = src.get("title") or url or "Untitled"
+                    snippet = src.get("snippet")
+                    if url:
+                        source_urls.add(url)
+                        if snippet:
+                            lines.append(f"- [{title}]({url}) — {snippet}")
+                        else:
+                            lines.append(f"- [{title}]({url})")
+                    else:
+                        lines.append(f"- {title}")
+
+            # Web Search URLs block — URL-only bulk. Apply cross-block
+            # markdown dedup: skip URLs already surfaced in the Citations
+            # or Sources block above. Dedup is MARKDOWN-ONLY; the JSON
+            # output keeps citations / web_urls / web_sources whole so
+            # downstream indexers don't silently lose data.
+            if "web_urls" in msg and msg["web_urls"]:
+                already_shown = citation_urls | source_urls
+                remaining = [u for u in msg["web_urls"] if u not in already_shown]
+                if remaining:
+                    lines.append("")
+                    lines.append("**Web Search URLs:**")
+                    for url in remaining:
+                        lines.append(f"- {url}")
 
             lines.append("")
 
@@ -1179,11 +1267,17 @@ class ConversationExtractorV2:
                     if k in msg:
                         json_msg[k] = msg[k]
 
-            # Include auxiliary data only when present to keep JSON compact
+            # Include auxiliary data only when present to keep JSON compact.
+            # citations / web_urls / web_sources are emitted whole (no
+            # cross-block dedup) so downstream indexers can access every
+            # captured source. Markdown output does dedup at render for
+            # human readability.
             if citations := msg.get("citations"):
                 json_msg["citations"] = citations
             if web_urls := msg.get("web_urls"):
                 json_msg["web_urls"] = web_urls
+            if web_sources := msg.get("web_sources"):
+                json_msg["web_sources"] = web_sources
             if files := msg.get("files"):
                 json_msg["files"] = files
 
