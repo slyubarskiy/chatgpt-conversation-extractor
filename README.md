@@ -44,6 +44,11 @@ message-level metadata such as `safe_urls`, `search_result_groups`, and
 - [uv](https://docs.astral.sh/uv/) for dependency management and command execution
 - 2GB+ RAM for large exports (500MB+ JSON files)
 
+Python dependencies (`PyYAML`, plus the extractor package itself) are
+installed by the `uv sync --group dev` step in **Quick Start** below.
+Optional: `openpyxl` if you plan to use the `--gpt-names-xlsx` sidecar
+feature.
+
 ## Getting Your ChatGPT Data
 
 1. Log in to [ChatGPT](https://chat.openai.com)

@@ -158,6 +158,20 @@ Search order: `--config <path>` → `$CHATGPT_EXTRACTOR_CONFIG` → `./chatgpt_e
 per_turn_timestamps: true       # default true — emit *<ISO>* italic lines
 gpt_metadata: true              # default true — emit gizmo_id/type/models_used + per-turn suffix
 gpt_names_xlsx: /path/to/GPT_Names.xlsx   # default null — no name resolution
+
+# web_urls: preset string OR per-type map. Presets:
+#   off        - skip all URL metadata
+#   citations  - Citations block only, everything else off (leanest useful)
+#   rich       - Citations + Sources blocks (title + snippet from
+#                search_result_groups + content_references). Best for
+#                BM25/embedding indexers wanting semantic content.
+# Or explicit per-type map (this fork's default shown):
+web_urls:
+  citations: rich              # off | minimal | rich
+  conv_safe_urls: off          # off | minimal
+  msg_safe_urls: off           # off | minimal
+  search_result_groups: rich   # off | minimal | rich
+  content_references: rich     # off | minimal | rich
 ```
 
 ## Content Types
@@ -178,14 +192,26 @@ gpt_names_xlsx: /path/to/GPT_Names.xlsx   # default null — no name resolution
 
 ## URL Extraction Sources
 
-1. `message.metadata.citations[].metadata.url`
-2. `conversation.safe_urls[]`
-3. `content.url` (tether_quote, sonic_webpage)
-4. `content.domain` (with https:// prefix)
-5. `content.result` (regex extraction)
-6. `parts[]` text (regex extraction)
-7. `metadata.attachments`
-8. `metadata.aggregate_result`
+Baseline (always on, not config-gated):
+- `content.url` / `content.domain` (tether_quote, sonic_webpage)
+- `content.result` regex (tether_browsing_display)
+- `parts[]` text regex
+
+Config-gated via `web_urls` (see Config File section):
+- `message.metadata.citations[].metadata.url` — `citations` key
+  (`rich` = existing Citations block; `minimal` = URLs only; `off` = skip)
+- `conversation.safe_urls[]` — `conv_safe_urls` (`minimal` | `off`)
+- `message.metadata.safe_urls[]` — `msg_safe_urls` (`minimal` | `off`)
+- `metadata.search_result_groups[].entries[]` — `search_result_groups`
+  (`rich` = new Sources block with title + snippet; `minimal` = URLs;
+  `off` = skip); nested `supporting_websites` inherit parent's level
+- `metadata.content_references[]` (webpage_extended, sources_footnote) —
+  `content_references` (`rich` = Sources block; `minimal` | `off`)
+
+Markdown output applies cross-block dedup at render (URLs in Citations
+or Sources block don't re-appear in Web Search URLs). JSON output emits
+`citations`, `web_urls`, and `web_sources` whole — downstream indexers
+see every captured source.
 
 ## Defensive Checks
 
