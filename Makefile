@@ -103,9 +103,8 @@ extract-script: install check-inputs
 # Compatibility with the blog-post workflow. Usually unnecessary now because
 # --preserve-timestamps true is the default, but useful for old output trees.
 fix-timestamps:
-	@echo "Updating timestamps in $(MD_DIR)/*.md from YAML frontmatter"
-	@for f in "$(MD_DIR)"/*.md; do \
-		[ -e "$$f" ] || continue; \
+	@echo "Updating timestamps recursively under $(MD_DIR) from YAML frontmatter"
+	@find "$(MD_DIR)" -type f -name '*.md' -print | while IFS= read -r f; do \
 		ts=$$(sed -n 's/^created:[[:space:]]*"\(.*\)".*/\1/p' "$$f" | head -n1); \
 		if [ -z "$$ts" ]; then \
 			ts=$$(sed -n 's/^updated:[[:space:]]*"\(.*\)".*/\1/p' "$$f" | head -n1); \
