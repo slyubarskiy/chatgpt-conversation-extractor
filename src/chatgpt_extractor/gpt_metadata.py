@@ -61,9 +61,10 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
               collection; missing or non-dict mapping is tolerated.
 
     Returns:
-        Dict with any subset of ``gizmo_id``, ``gizmo_type``, ``models_used``.
-        Empty dict if none of the signals are present (default ChatGPT
-        conversation with no exotic per-turn models recorded).
+        Dict with any subset of ``gizmo_id``, ``gizmo_type``,
+        ``models_used``, ``conversation_origin``. Empty dict if none of
+        the signals are present (default ChatGPT conversation with no
+        exotic per-turn models recorded).
     """
     out: Dict[str, Any] = {}
 
@@ -97,6 +98,26 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
                 models_seen.add(slug)
     if models_seen:
         out["models_used"] = sorted(models_seen)
+
+    # Provenance: where the conversation was created. Observed values so
+    # far are ``"tpp"`` (third-party platform — the desktop app, which
+    # runs "Work Mode" with local processing) and ``None`` for browser
+    # conversations. Emitted verbatim as an opaque string rather than
+    # validated against an enum: OpenAI adds values without notice, and
+    # an unknown value is still more useful than a silently dropped one.
+    #
+    # Worth capturing because it is the ONLY reliable discriminator for
+    # locally-processed conversations. The per-message ``model_slug``
+    # ``-wm`` suffix correlates today (8/8 in the 2026-08-26 batch) but
+    # is a naming convention, not a contract.
+    #
+    # Lives here, under the ``gpt_metadata`` flag, rather than as a
+    # fourth config knob: its demonstrated use is Work Mode
+    # identification, read together with ``models_used``, and
+    # ``--no-gpt-metadata`` keeps its promise of pre-feature output.
+    origin = conv.get("conversation_origin")
+    if origin:
+        out["conversation_origin"] = origin
 
     return out
 

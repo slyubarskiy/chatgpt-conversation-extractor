@@ -78,7 +78,9 @@ class ConversationExtractorV2:
             gpt_metadata: When True (default), enrich output with Custom
                         GPT / per-turn model / plugin signals. Frontmatter
                         gains ``gizmo_id`` (only for Custom GPTs, not
-                        projects), ``gizmo_type``, and ``models_used`` (the
+                        projects), ``gizmo_type``, ``conversation_origin``
+                        (provenance, e.g. ``tpp`` for the desktop app),
+                        and ``models_used`` (the
                         deduped set of per-message ``model_slug`` values).
                         The per-turn italic line gains ``· model_slug``,
                         ``· plugin:<namespace>``, and ``· gpt:<id>`` (the
@@ -1231,6 +1233,7 @@ class ConversationExtractorV2:
                 "gpt_name",
                 "deep_research",
                 "deep_research_version",
+                "conversation_origin",
             ):
                 if k in metadata:
                     json_data[k] = metadata[k]

@@ -90,6 +90,49 @@ def test_extract_conv_gpt_meta_snorlax_project_suppresses_gizmo_id():
     assert out["models_used"] == ["gpt-5"]
 
 
+def test_extract_conv_gpt_meta_captures_conversation_origin():
+    """`conversation_origin` is emitted verbatim when present.
+
+    Observed on the 2026-08-26 sync: the desktop app ("Work Mode", local
+    processing) stamps `conversation_origin: "tpp"`. It is the only
+    reliable discriminator for locally-processed conversations — the
+    `-wm` model_slug suffix correlates but is a naming convention.
+    """
+    conv = {
+        "conversation_origin": "tpp",
+        "default_model_slug": "gpt-5.6-sol-wm",
+        "mapping": {"n1": _msg_node("n1", "assistant", slug="gpt-5.6-sol-wm")},
+    }
+    out = extract_conv_gpt_meta(conv)
+    assert out["conversation_origin"] == "tpp"
+    assert out["models_used"] == ["gpt-5.6-sol-wm"]
+
+
+def test_extract_conv_gpt_meta_omits_null_conversation_origin():
+    """Browser conversations have origin None -> key absent entirely.
+
+    Guards the "no None values reach the output" contract: ~93% of a real
+    batch has a null origin, so emitting it would be pure noise.
+    """
+    conv = {
+        "conversation_origin": None,
+        "mapping": {"n1": _msg_node("n1", "assistant", slug="gpt-5-6")},
+    }
+    assert "conversation_origin" not in extract_conv_gpt_meta(conv)
+
+
+def test_extract_conv_gpt_meta_origin_absent_key_tolerated():
+    """Older exports predate the field entirely — must not KeyError."""
+    assert "conversation_origin" not in extract_conv_gpt_meta({"mapping": {}})
+
+
+def test_extract_conv_gpt_meta_origin_passthrough_unknown_value():
+    """Unknown/future values pass through verbatim rather than being
+    validated against an enum — OpenAI adds values without notice."""
+    out = extract_conv_gpt_meta({"conversation_origin": "some-future-value"})
+    assert out["conversation_origin"] == "some-future-value"
+
+
 def test_extract_conv_gpt_meta_default_chatgpt():
     """No Custom GPT / project signals → empty dict (no noise in frontmatter)."""
     conv = {
@@ -1158,3 +1201,93 @@ def test_gpt_names_xlsx_via_config_file(tmp_path, custom_gpt_conv_fixture):
     ex = _extractor(tmp_path, gpt_names_xlsx=None, config_path=str(cfg))
     metadata, _msgs, _json = ex.process_conversation(custom_gpt_conv_fixture)
     assert metadata["gpt_name"] == "Summarizer 2"
+
+
+# --------------------------------------------------------------------------- #
+# conversation_origin — integration through ConversationExtractorV2
+# --------------------------------------------------------------------------- #
+
+
+def _work_mode_conv():
+    """A Work Mode conversation shaped like the real 2026-08-26 sample.
+
+    Mirrors conv 6a8d8a4f: origin 'tpp' plus the dotted `-wm` model slug
+    that the desktop app emits (every other slug in the corpus uses
+    hyphens, so this doubles as a guard that dots survive YAML).
+    """
+    return {
+        "id": "wm-1",
+        "conversation_id": "wm-1",
+        "title": "Work Mode Sample",
+        "create_time": 1787660896.815663,
+        "update_time": 1787662092.963936,
+        "conversation_origin": "tpp",
+        "default_model_slug": "gpt-5.6-sol-wm",
+        "current_node": "a1",
+        "mapping": {
+            "u1": {
+                "id": "u1",
+                "parent": None,
+                "children": ["a1"],
+                "message": {
+                    "id": "u1",
+                    "author": {"role": "user"},
+                    "create_time": 1787660896.0,
+                    "content": {"content_type": "text", "parts": ["question?"]},
+                    "metadata": {},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "parent": "u1",
+                "children": [],
+                "message": {
+                    "id": "a1",
+                    "author": {"role": "assistant"},
+                    "create_time": 1787660900.0,
+                    "content": {"content_type": "text", "parts": ["answer."]},
+                    "metadata": {"model_slug": "gpt-5.6-sol-wm"},
+                },
+            },
+        },
+    }
+
+
+def test_integration_conversation_origin_in_frontmatter(tmp_path):
+    """Work Mode conv -> conversation_origin lands in frontmatter and JSON."""
+    ex = _extractor(tmp_path)
+    metadata, msgs, json_data = ex.process_conversation(_work_mode_conv())
+    assert metadata["conversation_origin"] == "tpp"
+    assert json_data["conversation_origin"] == "tpp"
+    assert "conversation_origin: tpp" in ex.generate_markdown(metadata, msgs)
+
+
+def test_integration_conversation_origin_absent_for_browser_conv(tmp_path):
+    """Browser-started conv (origin None) -> field absent everywhere."""
+    conv = _work_mode_conv()
+    conv["conversation_origin"] = None
+    ex = _extractor(tmp_path)
+    metadata, msgs, json_data = ex.process_conversation(conv)
+    assert "conversation_origin" not in metadata
+    assert "conversation_origin" not in json_data
+    assert "conversation_origin" not in ex.generate_markdown(metadata, msgs)
+
+
+def test_integration_no_gpt_metadata_suppresses_conversation_origin(tmp_path):
+    """--no-gpt-metadata keeps its promise of exact pre-feature output."""
+    ex = _extractor(tmp_path, gpt_metadata=False)
+    metadata, msgs, json_data = ex.process_conversation(_work_mode_conv())
+    assert "conversation_origin" not in metadata
+    assert "conversation_origin" not in json_data
+    assert "conversation_origin" not in ex.generate_markdown(metadata, msgs)
+
+
+def test_integration_conversation_origin_yaml_parses(tmp_path):
+    """Frontmatter carrying conversation_origin must stay valid YAML, and
+    the dotted Work Mode slug must survive the round-trip as a string."""
+    ex = _extractor(tmp_path)
+    metadata, msgs, _ = ex.process_conversation(_work_mode_conv())
+    fm = ex.generate_markdown(metadata, msgs)[3:].partition("\n---")[0]
+    parsed = yaml.safe_load(fm)
+    assert parsed["conversation_origin"] == "tpp"
+    assert parsed["models_used"] == ["gpt-5.6-sol-wm"]
