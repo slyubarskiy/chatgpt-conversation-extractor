@@ -1,0 +1,6 @@
+# Package metadata lives in setup.py; this file carries tool configuration only.
+# Deliberately no [build-system] table: with none present, PEP 518 consumers fall
+# back to setuptools' legacy backend, which preserves existing setup.py semantics.
+
+[tool.black]
+line-length = 88

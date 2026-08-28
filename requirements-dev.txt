@@ -8,7 +8,12 @@ pytest-mock>=3.11.1
 psutil>=5.9.0
 
 # Code quality
-black>=23.7.0
+# Pinned to the 25.x stable-style series: line-length pins the width, not the
+# style, and Black's stable style changes at calendar-year releases. Note 25.12
+# dropped Python 3.9, so the 3.9 matrix legs resolve to 25.11 -- verified to
+# produce byte-identical output. Moving to 26.x requires dropping Python 3.9
+# first, and reformatting the tree.
+black>=25.1,<26
 flake8>=6.1.0
 mypy>=1.5.1
 types-PyYAML>=6.0.0

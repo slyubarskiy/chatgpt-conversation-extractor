@@ -75,6 +75,18 @@ This tool was created to solve a personal need for extracting ChatGPT conversati
 
 ### Code Style
 
+**Formatting is enforced**
+- The project is formatted with [Black](https://black.readthedocs.io/) at a line
+  length of 88, configured in `pyproject.toml`.
+- Run `black src tests extract.py setup.py` before pushing. CI fails if the tree
+  is not formatted.
+- `pip install -r requirements-dev.txt` gets you the pinned version. Please don't
+  bump it in a feature PR: a new Black release can change formatting, so version
+  bumps go in their own PR together with the resulting reformat.
+- The tree was reformatted in one sweep in #21. To keep `git blame` readable
+  locally, run once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+  (GitHub applies this automatically).
+
 **Follow Existing Patterns**
 - Use same naming conventions
 - Match indentation and formatting
