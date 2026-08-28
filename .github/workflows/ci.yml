@@ -61,8 +61,7 @@ jobs:
     
     - name: Format check with Black
       run: |
-        black --check --diff src tests extract.py
-      continue-on-error: true  # Warning only for now
+        black --check --diff src tests extract.py setup.py
     
     - name: Type checking with mypy
       run: |

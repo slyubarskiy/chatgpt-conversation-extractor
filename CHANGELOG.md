@@ -59,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dicts (e.g. the live-sync renderer).
 
 ### Changed
+- Black formatting is now enforced in CI rather than advisory. The
+  tree was reformatted in one sweep (#21, no logic changes), a
+  `pyproject.toml` now pins `line-length = 88`, and the CI format
+  check no longer runs with `continue-on-error`, so an unformatted
+  tree fails the build. `setup.py` was added to the checked paths.
+  The Black requirement is pinned to the 25.x stable-style series:
+  `line-length` fixes the width but not the style, and Black changes
+  its stable style at calendar-year releases. Contributors should run
+  `black src tests extract.py setup.py` before pushing — see
+  CONTRIBUTING.md.
 - `extract_metadata` now emits `models_used:` (the deduped per-
   message `model_slug` set) — the legacy `model:` field still emits
   `default_model_slug` unchanged for backwards compatibility.

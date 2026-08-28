@@ -41,7 +41,7 @@ setup(
         "dev": [
             "pytest>=7.4.0",
             "pytest-cov>=4.1.0",
-            "black>=23.7.0",
+            "black>=25.1,<26",
             "flake8>=6.1.0",
             "mypy>=1.5.1",
         ],
