@@ -246,7 +246,7 @@ def _resolve_web_urls(
                 continue
             _log.warning(
                 "web_urls[%s]: got bool True; ambiguous — quote the level "
-                "explicitly (e.g. \"minimal\" or \"rich\"). Falling back to "
+                'explicitly (e.g. "minimal" or "rich"). Falling back to '
                 "default %r.",
                 k,
                 WEB_URLS_DEFAULT[k],

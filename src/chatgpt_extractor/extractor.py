@@ -161,9 +161,8 @@ class ConversationExtractorV2:
         # partial dicts + invalid values are resolved / logged / coerced
         # per config._resolve_web_urls.
         from .config import _resolve_web_urls
-        self.web_urls: Dict[str, str] = _resolve_web_urls(
-            web_urls, log=self.logger
-        )
+
+        self.web_urls: Dict[str, str] = _resolve_web_urls(web_urls, log=self.logger)
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
         # Load the gpt_id → name map once at construct time; downstream
@@ -842,9 +841,7 @@ class ConversationExtractorV2:
 
                     report_msg = extract_dr_report_message(msg)
                     if report_msg:
-                        rm_parts = (
-                            (report_msg.get("content") or {}).get("parts") or []
-                        )
+                        rm_parts = (report_msg.get("content") or {}).get("parts") or []
                         text = "\n\n".join(
                             p for p in rm_parts if isinstance(p, str) and p
                         )
@@ -1166,7 +1163,7 @@ class ConversationExtractorV2:
         # Handle None title
         if title is None:
             title = "untitled"
-        
+
         # Windows/Unix forbidden characters: <>:"/\|?*
         safe_title = re.sub(r'[<>:"/\\|?*]', "_", title)
 

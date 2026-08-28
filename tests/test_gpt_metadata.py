@@ -191,9 +191,15 @@ def test_extract_conv_gpt_meta_tolerates_missing_mapping():
 # --------------------------------------------------------------------------- #
 
 
-def _dr_node(node_id: str, role: str, *, version: int | None = None,
-             suppressed: bool = False, pineapple: bool = False,
-             attribution: bool = False) -> dict:
+def _dr_node(
+    node_id: str,
+    role: str,
+    *,
+    version: int | None = None,
+    suppressed: bool = False,
+    pineapple: bool = False,
+    attribution: bool = False,
+) -> dict:
     """Mapping node carrying whichever Deep Research markers are requested."""
     meta: dict = {}
     if version is not None:
@@ -267,16 +273,25 @@ def test_extract_conv_deep_research_meta_not_deep_research():
     URI → empty dict (no field in frontmatter)."""
     conv = {
         "mapping": {
-            "u1": {"id": "u1", "message": {"author": {"role": "user"},
-                                            "metadata": {"model_slug": "gpt-4o"}}},
-            "a1": {"id": "a1", "message": {"author": {"role": "assistant"},
-                                            "metadata": {
-                                                "model_slug": "gpt-4o",
-                                                "chatgpt_sdk": {
-                                                    "resolved_pineapple_uri":
-                                                        "connectors://something_else",
-                                                },
-                                            }}},
+            "u1": {
+                "id": "u1",
+                "message": {
+                    "author": {"role": "user"},
+                    "metadata": {"model_slug": "gpt-4o"},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "message": {
+                    "author": {"role": "assistant"},
+                    "metadata": {
+                        "model_slug": "gpt-4o",
+                        "chatgpt_sdk": {
+                            "resolved_pineapple_uri": "connectors://something_else",
+                        },
+                    },
+                },
+            },
         }
     }
     assert extract_conv_deep_research_meta(conv) == {}
@@ -302,10 +317,12 @@ def test_extract_conv_deep_research_meta_handles_tombstone_nodes():
 # --------------------------------------------------------------------------- #
 
 
-def _dr_tool_msg(report_text: str | None,
-                 *,
-                 model_slug: str | None = "gpt-5-2-instant",
-                 report_create_time: float | None = 1780275400.295557) -> dict:
+def _dr_tool_msg(
+    report_text: str | None,
+    *,
+    model_slug: str | None = "gpt-5-2-instant",
+    report_create_time: float | None = 1780275400.295557,
+) -> dict:
     """Build a tool message carrying widget_state.report_message in its
     chatgpt_sdk metadata. Mirrors the production shape verified against
     conv 6a1cd528."""
@@ -361,7 +378,8 @@ def test_extract_dr_report_message_rejects_non_tool_messages():
 def test_extract_dr_report_message_missing_widget_state():
     """Tool message without widget_state → None (most tool messages)."""
     msg = {
-        "id": "t", "author": {"role": "tool"},
+        "id": "t",
+        "author": {"role": "tool"},
         "content": {"content_type": "code", "parts": None},
         "metadata": {"chatgpt_sdk": {}, "model_slug": "gpt-5"},
     }
@@ -665,30 +683,44 @@ def test_integration_deep_research_marker_lands_in_metadata_and_json(tmp_path):
         "default_model_slug": "gpt-5-5-thinking",
         "current_node": "a1",
         "mapping": {
-            "u1": {"id": "u1", "parent": None, "children": ["a1"],
-                   "message": {"id": "u1", "author": {"role": "user"},
-                               "create_time": 1.0,
-                               "content": {"content_type": "text",
-                                           "parts": ["research deeply..."]},
-                               "metadata": {"deep_research_version": 3}}},
-            "a1": {"id": "a1", "parent": "u1", "children": [],
-                   "message": {"id": "a1", "author": {"role": "assistant"},
-                               "create_time": 2.0,
-                               # Empty parts mirrors the real "suppressed"
-                               # shape so the markdown body looks identical
-                               # to a non-DR short reply — but the marker
-                               # makes the conv greppable.
-                               "content": {"content_type": "text", "parts": [""]},
-                               "metadata": {
-                                   "model_slug": "gpt-5-2-instant",
-                                   "chatgpt_sdk_suppressed_response": True,
-                                   "chatgpt_sdk": {
-                                       "resolved_pineapple_uri":
-                                           "connectors://connector_openai_deep_research",
-                                       "attribution_id":
-                                           "connector_openai_deep_research",
-                                   },
-                               }}},
+            "u1": {
+                "id": "u1",
+                "parent": None,
+                "children": ["a1"],
+                "message": {
+                    "id": "u1",
+                    "author": {"role": "user"},
+                    "create_time": 1.0,
+                    "content": {
+                        "content_type": "text",
+                        "parts": ["research deeply..."],
+                    },
+                    "metadata": {"deep_research_version": 3},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "parent": "u1",
+                "children": [],
+                "message": {
+                    "id": "a1",
+                    "author": {"role": "assistant"},
+                    "create_time": 2.0,
+                    # Empty parts mirrors the real "suppressed"
+                    # shape so the markdown body looks identical
+                    # to a non-DR short reply — but the marker
+                    # makes the conv greppable.
+                    "content": {"content_type": "text", "parts": [""]},
+                    "metadata": {
+                        "model_slug": "gpt-5-2-instant",
+                        "chatgpt_sdk_suppressed_response": True,
+                        "chatgpt_sdk": {
+                            "resolved_pineapple_uri": "connectors://connector_openai_deep_research",
+                            "attribution_id": "connector_openai_deep_research",
+                        },
+                    },
+                },
+            },
         },
     }
     ex = _extractor(tmp_path)
@@ -707,23 +739,40 @@ def test_integration_no_gpt_metadata_suppresses_deep_research_marker(tmp_path):
     """--no-gpt-metadata reverts to pre-feature output and must NOT emit
     the deep_research field either — it's gated on the same flag."""
     conv = {
-        "id": "dr2", "conversation_id": "dr2", "title": "DR test",
-        "create_time": 1.0, "update_time": 2.0,
+        "id": "dr2",
+        "conversation_id": "dr2",
+        "title": "DR test",
+        "create_time": 1.0,
+        "update_time": 2.0,
         "default_model_slug": "gpt-5-thinking",
         "current_node": "a1",
         "mapping": {
-            "u1": {"id": "u1", "parent": None, "children": ["a1"],
-                   "message": {"id": "u1", "author": {"role": "user"},
-                               "create_time": 1.0,
-                               "content": {"content_type": "text", "parts": ["q"]},
-                               "metadata": {"deep_research_version": 1}}},
-            "a1": {"id": "a1", "parent": "u1", "children": [],
-                   "message": {"id": "a1", "author": {"role": "assistant"},
-                               "create_time": 2.0,
-                               "content": {"content_type": "text", "parts": ["r"]},
-                               "metadata": {
-                                   "chatgpt_sdk_suppressed_response": True,
-                               }}},
+            "u1": {
+                "id": "u1",
+                "parent": None,
+                "children": ["a1"],
+                "message": {
+                    "id": "u1",
+                    "author": {"role": "user"},
+                    "create_time": 1.0,
+                    "content": {"content_type": "text", "parts": ["q"]},
+                    "metadata": {"deep_research_version": 1},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "parent": "u1",
+                "children": [],
+                "message": {
+                    "id": "a1",
+                    "author": {"role": "assistant"},
+                    "create_time": 2.0,
+                    "content": {"content_type": "text", "parts": ["r"]},
+                    "metadata": {
+                        "chatgpt_sdk_suppressed_response": True,
+                    },
+                },
+            },
         },
     }
     ex = _extractor(tmp_path, gpt_metadata=False)
@@ -750,48 +799,74 @@ def test_integration_dr_report_body_surfaces_in_markdown(tmp_path):
         "plan": {"plan_id": "p", "version": 1, "title": "T", "steps": []},
         "status": "completed",
         "report_message": {
-            "id": "rm-1", "author": {"role": "assistant"},
+            "id": "rm-1",
+            "author": {"role": "assistant"},
             "create_time": 1780275400.0,
             "content": {"content_type": "text", "parts": [body]},
             "metadata": {"model_slug": "gpt-5-2-instant"},
         },
     }
     conv = {
-        "id": "dr-conv", "conversation_id": "dr-conv",
+        "id": "dr-conv",
+        "conversation_id": "dr-conv",
         "title": "China VPN Censorship Research",
-        "create_time": 1.0, "update_time": 2.0,
+        "create_time": 1.0,
+        "update_time": 2.0,
         "default_model_slug": "gpt-5-5-thinking",
         "current_node": "tool-1",
         "mapping": {
-            "u1": {"id": "u1", "parent": None, "children": ["a1"],
-                   "message": {"id": "u1", "author": {"role": "user"},
-                               "create_time": 0.5,
-                               "content": {"content_type": "text",
-                                            "parts": ["research deeply..."]},
-                               "metadata": {"deep_research_version": "standard"}}},
-            "a1": {"id": "a1", "parent": "u1", "children": ["tool-1"],
-                   "message": {"id": "a1", "author": {"role": "assistant"},
-                               "create_time": 1.0,
-                               # Suppressed pre-tool placeholder — must NOT
-                               # render. The body comes from the tool wrapper.
-                               "content": {"content_type": "text", "parts": [""]},
-                               "metadata": {"chatgpt_sdk_suppressed_response": True,
-                                             "chatgpt_sdk": {
-                                                 "resolved_pineapple_uri":
-                                                     "connectors://connector_openai_deep_research",
-                                             }}}},
-            "tool-1": {"id": "tool-1", "parent": "a1", "children": [],
-                        "message": {"id": "tool-1", "author": {"role": "tool"},
-                                     "create_time": 1.5,
-                                     "content": {"content_type": "code",
-                                                  "parts": None},
-                                     "metadata": {
-                                         "chatgpt_sdk": {
-                                             "widget_state": json.dumps(ws_dict),
-                                         },
-                                         "model_slug": "gpt-5-2-instant",
-                                     },
-                                     "recipient": "all"}},
+            "u1": {
+                "id": "u1",
+                "parent": None,
+                "children": ["a1"],
+                "message": {
+                    "id": "u1",
+                    "author": {"role": "user"},
+                    "create_time": 0.5,
+                    "content": {
+                        "content_type": "text",
+                        "parts": ["research deeply..."],
+                    },
+                    "metadata": {"deep_research_version": "standard"},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "parent": "u1",
+                "children": ["tool-1"],
+                "message": {
+                    "id": "a1",
+                    "author": {"role": "assistant"},
+                    "create_time": 1.0,
+                    # Suppressed pre-tool placeholder — must NOT
+                    # render. The body comes from the tool wrapper.
+                    "content": {"content_type": "text", "parts": [""]},
+                    "metadata": {
+                        "chatgpt_sdk_suppressed_response": True,
+                        "chatgpt_sdk": {
+                            "resolved_pineapple_uri": "connectors://connector_openai_deep_research",
+                        },
+                    },
+                },
+            },
+            "tool-1": {
+                "id": "tool-1",
+                "parent": "a1",
+                "children": [],
+                "message": {
+                    "id": "tool-1",
+                    "author": {"role": "tool"},
+                    "create_time": 1.5,
+                    "content": {"content_type": "code", "parts": None},
+                    "metadata": {
+                        "chatgpt_sdk": {
+                            "widget_state": json.dumps(ws_dict),
+                        },
+                        "model_slug": "gpt-5-2-instant",
+                    },
+                    "recipient": "all",
+                },
+            },
         },
     }
     ex = _extractor(tmp_path)
@@ -820,31 +895,54 @@ def test_integration_dr_with_only_plan_no_body_no_artifact_rendered(tmp_path):
         # No report_message
     }
     conv = {
-        "id": "x", "conversation_id": "x", "title": "Plan only",
-        "create_time": 1.0, "update_time": 2.0,
+        "id": "x",
+        "conversation_id": "x",
+        "title": "Plan only",
+        "create_time": 1.0,
+        "update_time": 2.0,
         "default_model_slug": "gpt-5-thinking",
         "current_node": "a1",
         "mapping": {
-            "u1": {"id": "u1", "parent": None, "children": ["a1"],
-                   "message": {"id": "u1", "author": {"role": "user"},
-                               "create_time": 1.0,
-                               "content": {"content_type": "text", "parts": ["q"]},
-                               "metadata": {"deep_research_version": "standard"}}},
-            "a1": {"id": "a1", "parent": "u1", "children": ["tool-1"],
-                   "message": {"id": "a1", "author": {"role": "assistant"},
-                               "create_time": 1.0,
-                               "content": {"content_type": "text", "parts": ["wait"]},
-                               "metadata": {}}},
-            "tool-1": {"id": "tool-1", "parent": "a1", "children": [],
-                        "message": {"id": "tool-1", "author": {"role": "tool"},
-                                     "content": {"content_type": "code",
-                                                  "parts": None},
-                                     "metadata": {
-                                         "chatgpt_sdk": {
-                                             "widget_state": json.dumps(ws_dict),
-                                         },
-                                     },
-                                     "recipient": "all"}},
+            "u1": {
+                "id": "u1",
+                "parent": None,
+                "children": ["a1"],
+                "message": {
+                    "id": "u1",
+                    "author": {"role": "user"},
+                    "create_time": 1.0,
+                    "content": {"content_type": "text", "parts": ["q"]},
+                    "metadata": {"deep_research_version": "standard"},
+                },
+            },
+            "a1": {
+                "id": "a1",
+                "parent": "u1",
+                "children": ["tool-1"],
+                "message": {
+                    "id": "a1",
+                    "author": {"role": "assistant"},
+                    "create_time": 1.0,
+                    "content": {"content_type": "text", "parts": ["wait"]},
+                    "metadata": {},
+                },
+            },
+            "tool-1": {
+                "id": "tool-1",
+                "parent": "a1",
+                "children": [],
+                "message": {
+                    "id": "tool-1",
+                    "author": {"role": "tool"},
+                    "content": {"content_type": "code", "parts": None},
+                    "metadata": {
+                        "chatgpt_sdk": {
+                            "widget_state": json.dumps(ws_dict),
+                        },
+                    },
+                    "recipient": "all",
+                },
+            },
         },
     }
     ex = _extractor(tmp_path)

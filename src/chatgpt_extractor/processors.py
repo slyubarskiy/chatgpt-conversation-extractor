@@ -48,6 +48,7 @@ class MessageProcessor:
                 pass  # kept
             else:
                 from .gpt_metadata import extract_dr_report_message
+
                 if extract_dr_report_message(msg) is None:
                     return True
 
