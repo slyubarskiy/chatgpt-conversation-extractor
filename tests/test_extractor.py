@@ -90,7 +90,9 @@ class TestConversationExtractorV2:
         assert "updated" in metadata
         assert metadata["chat_url"] == "https://chatgpt.com/c/test-conv-001"
 
-    @pytest.mark.parametrize("tz_name", ["UTC", "Europe/London", "US/Pacific", "Asia/Kolkata"])
+    @pytest.mark.parametrize(
+        "tz_name", ["UTC", "Europe/London", "US/Pacific", "Asia/Kolkata"]
+    )
     def test_extract_metadata_timestamps_are_true_utc(
         self, temp_dirs, sample_data, monkeypatch, tz_name
     ):
@@ -104,9 +106,12 @@ class TestConversationExtractorV2:
         level output is identical to what UTC would produce.
         """
         import time as _time_mod
+
         # tzset() is POSIX-only; skip cleanly on Windows CI runners.
         if not hasattr(_time_mod, "tzset"):
-            pytest.skip("time.tzset() not available (Windows) — TZ envvar has no effect")
+            pytest.skip(
+                "time.tzset() not available (Windows) — TZ envvar has no effect"
+            )
         monkeypatch.setenv("TZ", tz_name)
         _time_mod.tzset()
 
@@ -125,10 +130,12 @@ class TestConversationExtractorV2:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         metadata = extractor.extract_metadata(conv)
 
-        assert metadata["created"] == "2024-01-01T00:00:00Z", \
-            f"created was {metadata['created']!r} under TZ={tz_name}"
-        assert metadata["updated"] == "2024-01-02T00:00:00Z", \
-            f"updated was {metadata['updated']!r} under TZ={tz_name}"
+        assert (
+            metadata["created"] == "2024-01-01T00:00:00Z"
+        ), f"created was {metadata['created']!r} under TZ={tz_name}"
+        assert (
+            metadata["updated"] == "2024-01-02T00:00:00Z"
+        ), f"updated was {metadata['updated']!r} under TZ={tz_name}"
 
     def test_backward_traverse(self, temp_dirs, sample_data):
         """Test backward traversal of conversation graph."""

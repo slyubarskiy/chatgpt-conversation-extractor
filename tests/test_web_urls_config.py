@@ -269,9 +269,7 @@ def test_extractor_web_urls_preset_str_resolves(_extractor_args, _isolated_confi
 def test_extractor_web_urls_dict_merges_over_defaults(
     _extractor_args, _isolated_config_env
 ):
-    ex = ConversationExtractorV2(
-        web_urls={"citations": "off"}, **_extractor_args
-    )
+    ex = ConversationExtractorV2(web_urls={"citations": "off"}, **_extractor_args)
     assert ex.web_urls["citations"] == "off"
     assert ex.web_urls["conv_safe_urls"] == WEB_URLS_DEFAULT["conv_safe_urls"]
 
@@ -386,9 +384,7 @@ def test_preset_off_renders_no_url_blocks(tmp_path, _isolated_config_env):
     assert "**Web Search URLs:**" not in md
 
 
-def test_preset_citations_renders_only_citations_block(
-    tmp_path, _isolated_config_env
-):
+def test_preset_citations_renders_only_citations_block(tmp_path, _isolated_config_env):
     md, _ = _render_with_preset("citations", tmp_path)
     assert "**Citations:**" in md
     assert "Cited Source" in md
@@ -442,9 +438,7 @@ def test_preset_rich_json_keeps_every_source_whole(tmp_path, _isolated_config_en
             assert url  # non-empty
 
 
-def test_preset_rich_url_only_sources_off_by_default(
-    tmp_path, _isolated_config_env
-):
+def test_preset_rich_url_only_sources_off_by_default(tmp_path, _isolated_config_env):
     """Under the 'rich' preset, URL-only source types (conv_safe_urls,
     msg_safe_urls) are OFF, so their URLs must not surface anywhere."""
     md, json_data = _render_with_preset("rich", tmp_path)

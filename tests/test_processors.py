@@ -260,8 +260,7 @@ class TestMessageProcessor:
                     {
                         "metadata": {
                             "url": (
-                                "https://example.com/article"
-                                "?utm_source=chatgpt.com"
+                                "https://example.com/article" "?utm_source=chatgpt.com"
                             )
                         }
                     }
@@ -285,10 +284,7 @@ class TestMessageProcessor:
             "content": {
                 "content_type": "text",
                 "parts": [
-                    (
-                        "See https://example.com/article"
-                        "#:~:text=Highlighted%20words"
-                    )
+                    "See https://example.com/article" "#:~:text=Highlighted%20words"
                 ],
             },
             "metadata": {

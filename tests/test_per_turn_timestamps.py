@@ -35,6 +35,7 @@ from chatgpt_extractor.extractor import ConversationExtractorV2
 # config.load_config
 # --------------------------------------------------------------------------- #
 
+
 def test_load_config_returns_defaults_when_no_file_found(_isolated_config_env):
     cfg = config_mod.load_config()
     assert cfg == config_mod.DEFAULTS
@@ -77,6 +78,7 @@ def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(
 # Extractor — per-turn timestamps in markdown output
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture
 def _extractor_args(tmp_path):
     return {
@@ -101,7 +103,9 @@ def _metadata():
     }
 
 
-def test_extractor_emits_per_turn_timestamps_by_default(_extractor_args, _isolated_config_env):
+def test_extractor_emits_per_turn_timestamps_by_default(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(**_extractor_args)
     md = ext.generate_markdown(_metadata(), _msgs_with_timestamps())
     # Italic ISO line appears beneath each role heading.
@@ -115,10 +119,10 @@ def test_extractor_emits_per_turn_timestamps_by_default(_extractor_args, _isolat
     assert user_idx < italic_idx < content_idx
 
 
-def test_extractor_no_per_turn_timestamps_matches_legacy(_extractor_args, _isolated_config_env):
-    ext = ConversationExtractorV2(
-        per_turn_timestamps=False, **_extractor_args
-    )
+def test_extractor_no_per_turn_timestamps_matches_legacy(
+    _extractor_args, _isolated_config_env
+):
+    ext = ConversationExtractorV2(per_turn_timestamps=False, **_extractor_args)
     md = ext.generate_markdown(_metadata(), _msgs_with_timestamps())
     # Headings present; no italic timestamps anywhere.
     assert "## User" in md
@@ -155,7 +159,9 @@ def test_extractor_config_file_used_when_constructor_arg_is_none(
     assert "*2024-05-25T" not in md
 
 
-def test_extractor_skips_timestamp_on_system_message(_extractor_args, _isolated_config_env):
+def test_extractor_skips_timestamp_on_system_message(
+    _extractor_args, _isolated_config_env
+):
     """System prompt's "send time" is the custom-instructions configuration
     moment, not a chat moment; per-turn timestamps don't apply."""
     ext = ConversationExtractorV2(**_extractor_args)
@@ -175,6 +181,7 @@ def test_extractor_skips_timestamp_on_system_message(_extractor_args, _isolated_
 # Extractor — JSON output bug fix
 # --------------------------------------------------------------------------- #
 
+
 def test_json_output_timestamp_uses_create_time(_extractor_args, _isolated_config_env):
     ext = ConversationExtractorV2(output_format="json", **_extractor_args)
     data = ext.generate_json_data(_metadata(), _msgs_with_timestamps())
@@ -184,7 +191,9 @@ def test_json_output_timestamp_uses_create_time(_extractor_args, _isolated_confi
     assert msgs[1]["timestamp"].startswith("2024-05-25T12:01:00")
 
 
-def test_json_output_timestamp_null_when_disabled(_extractor_args, _isolated_config_env):
+def test_json_output_timestamp_null_when_disabled(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(
         output_format="json", per_turn_timestamps=False, **_extractor_args
     )
@@ -198,6 +207,7 @@ def test_json_output_timestamp_null_when_disabled(_extractor_args, _isolated_con
 # process_messages + merge_continuations propagate create_time
 # --------------------------------------------------------------------------- #
 
+
 def _conv_with_timestamps():
     """Minimal mapping-graph conversation with user + assistant + 2 assistant
     continuation messages, each carrying create_time."""
@@ -207,29 +217,46 @@ def _conv_with_timestamps():
         "create_time": 1716638000.0,
         "update_time": 1716638600.0,
         "mapping": {
-            "n0": {"id": "n0", "parent": None, "children": ["n1"],
-                   "message": None},
-            "n1": {"id": "n1", "parent": "n0", "children": ["n2"],
-                   "message": {
-                       "id": "n1", "author": {"role": "user"},
-                       "content": {"content_type": "text", "parts": ["Q"]},
-                       "weight": 1.0, "create_time": 1716638400.0,
-                       "update_time": 1716638400.0,
-                   }},
-            "n2": {"id": "n2", "parent": "n1", "children": ["n3"],
-                   "message": {
-                       "id": "n2", "author": {"role": "assistant"},
-                       "content": {"content_type": "text", "parts": ["A1"]},
-                       "weight": 1.0, "create_time": 1716638460.0,
-                       "update_time": 1716638460.0,
-                   }},
-            "n3": {"id": "n3", "parent": "n2", "children": [],
-                   "message": {
-                       "id": "n3", "author": {"role": "assistant"},
-                       "content": {"content_type": "text", "parts": ["A2"]},
-                       "weight": 1.0, "create_time": 1716638480.0,
-                       "update_time": 1716638480.0,
-                   }},
+            "n0": {"id": "n0", "parent": None, "children": ["n1"], "message": None},
+            "n1": {
+                "id": "n1",
+                "parent": "n0",
+                "children": ["n2"],
+                "message": {
+                    "id": "n1",
+                    "author": {"role": "user"},
+                    "content": {"content_type": "text", "parts": ["Q"]},
+                    "weight": 1.0,
+                    "create_time": 1716638400.0,
+                    "update_time": 1716638400.0,
+                },
+            },
+            "n2": {
+                "id": "n2",
+                "parent": "n1",
+                "children": ["n3"],
+                "message": {
+                    "id": "n2",
+                    "author": {"role": "assistant"},
+                    "content": {"content_type": "text", "parts": ["A1"]},
+                    "weight": 1.0,
+                    "create_time": 1716638460.0,
+                    "update_time": 1716638460.0,
+                },
+            },
+            "n3": {
+                "id": "n3",
+                "parent": "n2",
+                "children": [],
+                "message": {
+                    "id": "n3",
+                    "author": {"role": "assistant"},
+                    "content": {"content_type": "text", "parts": ["A2"]},
+                    "weight": 1.0,
+                    "create_time": 1716638480.0,
+                    "update_time": 1716638480.0,
+                },
+            },
         },
         "current_node": "n3",
     }
