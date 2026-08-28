@@ -15,7 +15,6 @@ Shares the ``_isolated_config_env`` fixture from ``conftest.py``.
 """
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,6 @@ from chatgpt_extractor import config as config_mod
 from chatgpt_extractor.config import (
     WEB_URLS_DEFAULT,
     WEB_URLS_KEYS,
-    WEB_URLS_LEVELS,
     WEB_URLS_PRESETS,
     _merge_config_over_defaults,
     _resolve_web_urls,
@@ -454,3 +452,34 @@ def test_preset_rich_url_only_sources_off_by_default(
     if "web_urls" in msg:
         assert "https://conv-only.example.com/page" not in msg["web_urls"]
         assert "https://msg-safe.example.com/page" not in msg["web_urls"]
+
+
+def test_no_config_uses_fork_rich_source_default(tmp_path, _isolated_config_env):
+    """A fresh checkout should use the fork's rich desktop-search default."""
+    conv = _make_sample_conv()
+    input_file = tmp_path / "in_default.json"
+    input_file.write_text(json.dumps([conv]), encoding="utf-8")
+    ex = ConversationExtractorV2(
+        input_file=str(input_file),
+        output_dir=str(tmp_path / "out_default"),
+        output_format="both",
+    )
+
+    md_meta, msgs, _ = ex.process_conversation(conv)
+    md = ex.generate_markdown(md_meta, msgs)
+    json_data = ex.generate_json_data(md_meta, msgs)
+
+    assert ex.web_urls == WEB_URLS_DEFAULT
+    assert "**Citations:**" in md
+    assert "**Sources:**" in md
+    assert "Search Hit One" in md
+    assert "CRef Page" in md
+    assert "https://conv-only.example.com/page" not in md
+    assert "https://msg-safe.example.com/page" not in md
+
+    msg = json_data["messages"][-1]
+    assert "web_sources" in msg
+    assert {s["url"] for s in msg["web_sources"]} == {
+        "https://search.example.com/hit-1",
+        "https://cref.example.com/page",
+    }

@@ -57,8 +57,9 @@ Currently recognised keys:
      - ``search_result_groups``: ``off | minimal | rich``.
      - ``content_references``: ``off | minimal | rich``.
 
-  Default preserves pre-PR-#17 behavior: citations rich, conv_safe_urls
-  minimal, msg_safe_urls / search_result_groups / content_references off.
+  This fork defaults to rich semantic source context for desktop search:
+  citations rich, URL-only safe_urls off, and search_result_groups /
+  content_references rich.
   ``supporting_websites`` is not a top-level config key — it only appears
   nested inside ``search_result_groups`` and ``content_references`` in
   real data and inherits its parent's level.
@@ -76,7 +77,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -99,15 +100,14 @@ WEB_URLS_RICH_CAPABLE_TYPES = frozenset(
 WEB_URLS_KEYS = WEB_URLS_URL_ONLY_TYPES | WEB_URLS_RICH_CAPABLE_TYPES
 
 # Default per-type map, applied when the user sets no web_urls config.
-# Matches pre-PR-#17 behavior byte-for-byte for existing rendered output:
-# only citations rich (via the existing extract_citations path) and
-# conv-level safe_urls minimal (via the existing conv_data.safe_urls path).
+# This fork favors desktop-search quality by surfacing rich title/snippet
+# source context while suppressing URL-only safe_urls bulk.
 WEB_URLS_DEFAULT: Dict[str, str] = {
     "citations": "rich",
-    "conv_safe_urls": "minimal",
+    "conv_safe_urls": "off",
     "msg_safe_urls": "off",
-    "search_result_groups": "off",
-    "content_references": "off",
+    "search_result_groups": "rich",
+    "content_references": "rich",
 }
 
 # Preset shorthand strings, resolved to full per-type maps at load time.

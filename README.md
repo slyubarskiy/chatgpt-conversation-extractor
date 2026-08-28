@@ -2,12 +2,35 @@
 
 Extracts and processes ChatGPT conversation exports into clean, readable markdown files with comprehensive metadata preservation and error tracking.
 
+## About This Fork
+
+This fork is maintained for the workflow described in
+[Export ChatGPT Chats to Markdown for Desktop Search](https://weisser-zwerg.dev/posts/quick-tip-nugget-export-chatgpt-to-markdown-for-desktop-search).
+The goal is to turn ChatGPT export data into local Markdown files that can be
+indexed by desktop search tools such as Recoll or DocFetcher.
+
+The most important fork-specific context is the appendix
+[Privacy Portal flow and changed export format](https://weisser-zwerg.dev/posts/quick-tip-nugget-export-chatgpt-to-markdown-for-desktop-search/#privacy-portal-flow-and-changed-export-format).
+Newer Privacy Portal exports may no longer contain a single top-level
+`conversations.json`. The main export ZIP can contain nested ZIP files under
+`User Online Activity/`; the chat data is inside
+`Conversations__*-chatgpt-*.zip` and can be split across files such as
+`conversations-000.json`, `conversations-001.json`, etc. This fork automates
+running the extractor once for each split file while writing all results into
+the same output directory.
+
+It also preserves more source-link data from newer exports by reading
+message-level metadata such as `safe_urls`, `search_result_groups`, and
+`content_references`, not only the older conversation-level URL fields.
+
 ## Features
 
 - Processes ChatGPT `conversations.json` export files
+- Works with split export files such as `conversations-000.json`, `conversations-001.json`, etc. when newer exports are partitioned
 - Converts complex conversation graphs to linear transcripts
 - Filters out most system messages (keeps at most one user-system prompt) and hidden/tool messages, except when they contain meaningful content.
 - Preserves code blocks, citations, and file references
+- Extracts URLs from both older conversation-level metadata and newer message-level metadata such as `safe_urls`, `search_result_groups`, and `content_references`
 - Groups conversations by project automatically
 - Handles 6000+ conversations efficiently with detailed logging
 - Visibility to schema evolution for transparency
@@ -18,10 +41,11 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 ## Requirements
 
 - Python 3.9+
+- [uv](https://docs.astral.sh/uv/) for dependency management and command execution
 - 2GB+ RAM for large exports (500MB+ JSON files)
 
 Python dependencies (`PyYAML`, plus the extractor package itself) are
-installed by the `pip install -e .` step in **Quick Start** below.
+installed by the `uv sync --group dev` step in **Quick Start** below.
 Optional: `openpyxl` if you plan to use the `--gpt-names-xlsx` sidecar
 feature.
 
@@ -30,54 +54,115 @@ feature.
 1. Log in to [ChatGPT](https://chat.openai.com)
 2. Go to Settings → Data controls → Export data
 3. Click "Export" and wait for the email (usually within 24 hours)
-4. Download and extract `conversations.json` from the ZIP file
+4. Download and extract the ZIP file
+
+Note:
+
+- Some newer exports, especially Privacy Portal exports, may put the actual chat export in a nested `Conversations__*-chatgpt-*.zip`.
+- Extracting that nested conversations ZIP produces split files such as `conversations-000.json`, `conversations-001.json`, etc. instead of one top-level `conversations.json`.
+- This tool can be run against each split file separately and write into the same output directory.
+- See the blog appendix on the [Privacy Portal flow and changed export format](https://weisser-zwerg.dev/posts/quick-tip-nugget-export-chatgpt-to-markdown-for-desktop-search/#privacy-portal-flow-and-changed-export-format) for the rationale behind this fork and the split-file workflow.
+
+## Privacy Portal Makefile Workflow
+
+The included [Makefile](Makefile) automates the newer Privacy Portal layout.
+It assumes this repository is cloned inside the `User Online Activity/`
+directory.
+
+After extracting the top-level Privacy Portal ZIP, `User Online Activity/`
+may initially contain only nested ZIP files:
+
+```
+User Online Activity/
+├── Ads__<export-id>-ads-0001.zip
+├── Conversations__<export-id>-chatgpt-0001.zip
+├── Files__<export-id>-files-0001.zip
+└── chatgpt-conversation-extractor/
+```
+
+For Markdown conversation generation, this repository only needs the nested
+`Conversations__*-chatgpt-*.zip`. The `Ads__...zip` and `Files__...zip`
+archives are not required by the current extractor workflow.
+
+Extract the nested conversations ZIP, then process the resulting shards:
+
+```bash
+make extract-conversations-zip
+make list-inputs
+make extract
+```
+
+`make extract-conversations-zip` runs `unzip -n` against the discovered
+`../Conversations__*-chatgpt-*.zip`, creating files such as
+`../conversations-000.json`, `../conversations-001.json`, etc. without
+overwriting existing files. `make extract` installs the package with `uv`,
+processes every discovered `../conversations.json` or
+`../conversations-*.json` file, and writes all results into the same `output/`
+tree. Markdown output lands in `output/md/`. File timestamp preservation is
+enabled by default.
+
+Useful overrides:
+
+```bash
+# Process a different Privacy Portal directory
+make extract-conversations-zip INPUT_DIR="/path/to/User Online Activity"
+make extract INPUT_DIR="/path/to/User Online Activity"
+
+# Extract a specific nested conversations ZIP
+make extract-conversations-zip CONVERSATIONS_ZIP="/path/to/Conversations__...-chatgpt-0001.zip"
+
+# Process one explicit file
+make extract INPUT=/path/to/conversations-000.json
+
+# Generate both Markdown and JSON
+make extract FORMAT=both OUTPUT=./output
+
+# Resolve Custom GPT names with an optional sidecar file
+make extract GPT_NAMES_XLSX=/path/to/GPT_Names.xlsx
+```
 
 ## Quick Start
 
 ```bash
-# One-time install
-git clone https://github.com/slyubarskiy/chatgpt-conversation-extractor.git
-cd chatgpt-conversation-extractor
-python -m venv .venv
-source .venv/bin/activate         # Windows: .venv\Scripts\activate
-pip install -e .                  # installs the chatgpt_extractor package + PyYAML
+# Install dependencies into .venv using the repo-local .uv-cache
+uv sync --group dev
 
 # Default: extract to Markdown
-python -m chatgpt_extractor data/raw/conversations.json data/output
+uv run chatgpt-extractor data/raw/conversations.json data/output
 
 # JSON only
-python -m chatgpt_extractor --output-format json
+uv run chatgpt-extractor --output-format json
 
 or
 
-python -m chatgpt_extractor data/raw/conversations.json data/output --output-format json
+uv run chatgpt-extractor data/raw/conversations.json data/output --output-format json
 
 # Both Markdown and JSON
-python -m chatgpt_extractor --output-format both
+uv run chatgpt-extractor --output-format both
 
 # JSON as a single consolidated file
-python -m chatgpt_extractor --output-format json --json-format single --json-file all_conversations.json
+uv run chatgpt-extractor --output-format json --json-format single --json-file all_conversations.json
 
 # JSON as multiple files in custom directory
-python -m chatgpt_extractor --output-format json --json-format multiple --json-dir custom/json/
+uv run chatgpt-extractor --output-format json --json-format multiple --json-dir custom/json/
 
 # Markdown in a custom directory
-python -m chatgpt_extractor --output-format markdown --markdown-dir custom/md/
+uv run chatgpt-extractor --output-format markdown --markdown-dir custom/md/
 
 # Disable timestamp syncing (use current system time for file timestamps)
-python -m chatgpt_extractor --preserve-timestamps false
+uv run chatgpt-extractor --preserve-timestamps false
 
 # Suppress Custom GPT / per-turn model / plugin metadata (revert to pre-feature output)
-python -m chatgpt_extractor --no-gpt-metadata
+uv run chatgpt-extractor --no-gpt-metadata
 
-# Resolve Custom GPT names via a sidecar xlsx (id → human-readable name)
-python -m chatgpt_extractor --gpt-names-xlsx /path/to/GPT_Names.xlsx
+# Resolve Custom GPT names via a sidecar xlsx (id -> human-readable name)
+uv run chatgpt-extractor --gpt-names-xlsx /path/to/GPT_Names.xlsx
 
 # Run failure analysis if conversion issues occurred
-python -m chatgpt_extractor --analyze-failures
+uv run chatgpt-extractor --analyze-failures
 
 # Enable debug logging for troubleshooting
-python -m chatgpt_extractor --debug
+uv run chatgpt-extractor --debug
 
 ```
 
@@ -88,13 +173,13 @@ data/output/
 ├── md/                         # Markdown output (if enabled)
 │   ├── Regular Conversation 1.md
 │   ├── Regular Conversation 2.md
-│   └── project_XXXXXXXX/      # Project folders
+│   └── g-p-XXXXXXXX/          # Project folders
 │       ├── Project Conv 1.md
 │       └── Project Conv 2.md
 ├── json/                       # # JSON output (if --output-format includes json & --json-format multiple, default: data/output/json/)
 │   ├── Regular Conversation 1.json
 │   ├── Regular Conversation 2.json
-│   └── project_XXXXXXXX/
+│   └── g-p-XXXXXXXX/
 │       ├── Project Conv 1.json
 │       └── Project Conv 2.json
 ├── all_conversations.json      # Single file (if --output-format json and --json-format single with --json-file specified)
@@ -131,6 +216,7 @@ Structured data with:
 - **Graph traversal**: Uses backward traversal to reconstruct active conversation path
 - **Content filtering**: Removes tool messages, thoughts, and hidden system content
 - **Message merging**: Combines consecutive assistant messages
+- **URL extraction**: Reads citations, content URL fields, conversation-level `safe_urls`, and newer message metadata structures like `safe_urls`, `search_result_groups`, and `content_references`
 - **Project detection**: Groups by `conversation_template_id` pattern
 - **Error handling**: Comprehensive logging with recovery mechanisms
 
@@ -184,7 +270,7 @@ Structured data with:
 
 | Issue | Solution |
 |-------|----------|
-| Missing module 'yaml' | `pip install pyyaml` |
+| Missing module 'yaml' | Run `uv sync --group dev` from the repository root |
 | File not found | Check path to conversations.json |
 | Memory error | Increase available RAM |
 | Some conversations fail | Check `conversion_log.log` for details |

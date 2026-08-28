@@ -104,10 +104,10 @@ class ConversationExtractorV2:
                         string (``off | citations | rich``) or an explicit
                         per-type dict (see ``config.py``). ``None``
                         (default) reads from the config file, which itself
-                        defaults to a per-type map matching pre-PR-#17
-                        behavior (citations rich + conv_safe_urls minimal
-                        + msg_safe_urls / search_result_groups /
-                        content_references off). The ``citations`` preset
+                        defaults in this fork to rich source context for
+                        desktop search (citations rich + safe_urls off +
+                        search_result_groups/content_references rich).
+                        The ``citations`` preset
                         is the leanest useful setting for BM25/embedding
                         indexers wanting inline citation context but no
                         URL bulk; ``rich`` adds title + snippet blocks
@@ -849,7 +849,10 @@ class ConversationExtractorV2:
                             p for p in rm_parts if isinstance(p, str) and p
                         )
                         if text:
-                            dr_data = {"role": "assistant", "content": text}
+                            dr_data: Dict[str, Any] = {
+                                "role": "assistant",
+                                "content": text,
+                            }
                             # Inherit per-turn signals from the
                             # report_message's own metadata (its
                             # model_slug / gizmo_id / plugin_namespace

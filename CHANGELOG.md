@@ -15,13 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   URLs only (feeding the `**Web Search URLs:**` block), `rich`
   extracts URL + title + snippet/quote (feeding the existing
   `**Citations:**` block for `citations`, or a new `**Sources:**`
-  block for `search_result_groups` / `content_references`). Default
-  preserves the pre-PR-#17 behavior for backward compatibility:
-  `citations: rich`, `conv_safe_urls: minimal`, and the newer
-  metadata paths off. The `rich` preset is aimed at operators
-  indexing rendered markdown into BM25/embedding search engines
-  where inline title + snippet content is more valuable than URL
-  bulk. Markdown output applies cross-block URL dedup at render
+  block for `search_result_groups` / `content_references`). This fork
+  defaults to the desktop-search-oriented rich-source profile:
+  `citations: rich`, URL-only `safe_urls` sources off, and
+  `search_result_groups` / `content_references` rich, because inline
+  title + snippet content is more valuable than URL bulk for BM25 /
+  embedding search. Markdown output applies cross-block URL dedup at render
   time (a URL in Citations or Sources is not repeated in Web
   Search URLs); JSON output keeps `citations`, `web_urls`, and
   `web_sources` whole so downstream indexers don't silently lose

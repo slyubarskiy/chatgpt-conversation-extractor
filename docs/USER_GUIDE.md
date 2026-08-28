@@ -13,18 +13,18 @@
 ## Quick Start
 
 ```bash
-# 1. Install Python dependency
-pip install pyyaml
+# 1. Install project dependencies
+uv sync --group dev
 
 # 2. Export your ChatGPT conversations (see below)
 
 # 3. Run the extractor (markdown output)
-python -m chatgpt_extractor data/raw/conversations.json data/output
+uv run chatgpt-extractor data/raw/conversations.json data/output
 
 # 4. Find your files in data/output/md/
 
 # Optional: Extract to JSON format as well
-python -m chatgpt_extractor data/raw/conversations.json data/output --output-format both
+uv run chatgpt-extractor data/raw/conversations.json data/output --output-format both
 ```
 
 ## Installation
@@ -32,29 +32,22 @@ python -m chatgpt_extractor data/raw/conversations.json data/output --output-for
 ### System Requirements
 
 - **Python**: 3.9 or higher (3.9 / 3.10 / 3.11 / 3.12 all tested in CI)
+- **uv**: required for the documented local workflow
 - **Memory**: 2GB RAM (for 500MB JSON files)
 - **Disk Space**: 2x the size of your conversations.json
 - **OS**: Windows, macOS, Linux
 
-### Step 1: Clone or Install
+### Step 1: Clone Repository
 
 ```bash
-# Option A: Clone repository
-git clone https://github.com/slyubarskiy/chatgpt-conversation-extractor.git
+git clone https://github.com/cs224/chatgpt-conversation-extractor.git
 cd chatgpt-conversation-extractor
-
-# Option B: Install as a package (editable for local development)
-pip install -e .
 ```
 
 ### Step 2: Install Dependencies
 
 ```bash
-# Only one dependency required
-pip install pyyaml
-
-# Or with requirements file
-pip install -r requirements.txt
+uv sync --group dev
 ```
 
 ### Step 3: Create Directory Structure
@@ -77,7 +70,13 @@ mkdir -p data/output
 6. Click **Export** button
 7. Wait for email (usually within 24 hours)
 8. Download the ZIP file from the email link
-9. Extract `conversations.json` from the ZIP
+9. For classic exports, extract `conversations.json` from the ZIP
+
+Privacy Portal exports can be one level more indirect: after extracting the
+top-level export ZIP, `User Online Activity/` may contain
+`Conversations__*-chatgpt-*.zip`, `Files__...zip`, and `Ads__...zip`. For
+Markdown conversation generation, extract only the `Conversations__...zip`;
+the current extractor does not require the Ads or Files archives.
 
 ### File Location
 
@@ -104,7 +103,7 @@ chatgpt-extractor/
 
 ```bash
 # Uses default paths (markdown only)
-python -m chatgpt_extractor
+uv run chatgpt-extractor
 
 # Default input: data/raw/conversations.json
 # Default output: data/output/
@@ -114,36 +113,36 @@ python -m chatgpt_extractor
 
 ```bash
 # Specify custom input and output
-python -m chatgpt_extractor /path/to/conversations.json /path/to/output
+uv run chatgpt-extractor /path/to/conversations.json /path/to/output
 
 # Example:
-python -m chatgpt_extractor ~/Downloads/conversations.json ~/Documents/ChatGPT
+uv run chatgpt-extractor ~/Downloads/conversations.json ~/Documents/ChatGPT
 ```
 
 ### Output Format Options
 
 ```bash
 # Markdown only (default)
-python -m chatgpt_extractor conversations.json output/
+uv run chatgpt-extractor conversations.json output/
 
 # Both markdown and JSON (individual files)
-python -m chatgpt_extractor conversations.json output/ --output-format both
+uv run chatgpt-extractor conversations.json output/ --output-format both
 
 # Single consolidated JSON file
-python -m chatgpt_extractor conversations.json output/ --output-format json \
+uv run chatgpt-extractor conversations.json output/ --output-format json \
     --json-format single --json-file all_conversations.json
 
 # JSON only (multiple files)
-python -m chatgpt_extractor conversations.json output/ --output-format json
+uv run chatgpt-extractor conversations.json output/ --output-format json
 
 # Suppress per-message Custom GPT / model / plugin signals (legacy shape)
-python -m chatgpt_extractor conversations.json output/ --no-gpt-metadata
+uv run chatgpt-extractor conversations.json output/ --no-gpt-metadata
 
 # Resolve gizmo_id -> human-readable name via a sidecar xlsx
-python -m chatgpt_extractor conversations.json output/ --gpt-names-xlsx /path/GPT_Names.xlsx
+uv run chatgpt-extractor conversations.json output/ --gpt-names-xlsx /path/GPT_Names.xlsx
 
 # View help for all options
-python -m chatgpt_extractor --help
+uv run chatgpt-extractor --help
 ```
 
 ### What to Expect
@@ -181,17 +180,27 @@ For very large exports (>1GB):
 
 ```bash
 # Monitor memory usage
-python -m chatgpt_extractor large_export.json output/ 2>&1 | tee extraction.log
+uv run chatgpt-extractor large_export.json output/ 2>&1 | tee extraction.log
 ```
 
 ### Batch Processing
 
-For multiple export files:
+For Privacy Portal exports, prefer the repository Makefile. If the split
+`conversations-*.json` files are still inside the nested
+`Conversations__*-chatgpt-*.zip`, extract that archive first:
+
+```bash
+make extract-conversations-zip
+make list-inputs
+make extract
+```
+
+For custom batch layouts:
 
 ```bash
 for file in exports/*.json; do
     output_dir="output/$(basename $file .json)"
-    python -m chatgpt_extractor "$file" "$output_dir"
+    uv run chatgpt-extractor "$file" "$output_dir"
 done
 ```
 
@@ -203,7 +212,7 @@ populated by the live-sync companion (`online-sync gpt-names
 which the extractor reads. Point at the sidecar via:
 
 ```bash
-python -m chatgpt_extractor conversations.json output/ \
+uv run chatgpt-extractor conversations.json output/ \
     --gpt-names-xlsx /mnt/c/chatgpt_history/GPT_Names.xlsx
 ```
 
@@ -234,22 +243,22 @@ gpt_names_xlsx: /mnt/c/chatgpt_history/GPT_Names.xlsx
 # Or explicit per-type map:
 web_urls:
   citations: rich              # off | minimal | rich  — rich = Citations block
-  conv_safe_urls: minimal      # off | minimal          — conv.safe_urls[]
+  conv_safe_urls: off          # off | minimal          — conv.safe_urls[]
   msg_safe_urls: off           # off | minimal          — metadata.safe_urls[]
-  search_result_groups: off    # off | minimal | rich   — rich = Sources block
-  content_references: off      # off | minimal | rich   — rich = Sources block
+  search_result_groups: rich   # off | minimal | rich   — rich = Sources block
+  content_references: rich     # off | minimal | rich   — rich = Sources block
 ```
 
 ### Choosing a `web_urls` level
 
-For most users the default is fine — matches the pre-config
-behavior. If you're indexing rendered markdown into a BM25 or
-embedding-based search engine (e.g. Recoll, DocFetcher, QMD), the
-`rich` preset is worth considering: it drops URL-only bulk from
-`safe_urls` sources (low semantic signal) while surfacing titles +
-snippets from the modern web-search structures (high semantic
-signal) as a new `**Sources:**` block. If you don't want any URL
-blocks at all — indexing prose only — use `web_urls: off`.
+This fork defaults to the rich source profile because its main workflow
+is indexing rendered markdown into desktop search tools such as Recoll
+or DocFetcher. The default drops URL-only bulk from `safe_urls` sources
+(low semantic signal) while surfacing titles + snippets from the modern
+web-search structures (high semantic signal) as a new `**Sources:**`
+block. If you don't want any URL blocks at all — indexing prose only —
+use `web_urls: off`. If you want the leanest source context, use
+`web_urls: citations`.
 
 ## Understanding the Output
 
@@ -411,8 +420,8 @@ Details of any failed conversions:
 
 #### 1. "No module named 'yaml'"
 ```bash
-# Install the required module
-pip install pyyaml
+# Sync project dependencies from pyproject.toml
+uv sync --group dev
 ```
 
 #### 2. "Input file not found"
@@ -421,13 +430,13 @@ pip install pyyaml
 ls -la data/raw/conversations.json
 
 # Or specify full path
-python -m chatgpt_extractor /full/path/to/conversations.json output/
+uv run chatgpt-extractor /full/path/to/conversations.json output/
 ```
 
 #### 3. Memory Error with Large Files
 ```bash
 # Monitor memory
-python -u -m chatgpt_extractor 2>&1 | tee extraction.log
+uv run python -u -m chatgpt_extractor 2>&1 | tee extraction.log
 
 # Consider splitting large exports or increasing system memory
 ```

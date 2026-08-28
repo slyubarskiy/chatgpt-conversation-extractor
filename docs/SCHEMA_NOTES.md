@@ -97,7 +97,13 @@ appear. Both `gizmo_type` and `conversation_template_id` are retained
 
 ### Multi-file bundle layout
 
-The 2026-06 export bundle contains 92 files named
+The 2026-06 Privacy Portal export first unpacks to nested ZIP files under
+`User Online Activity/`, including `Conversations__*-chatgpt-*.zip`,
+`Files__...zip`, and `Ads__...zip`. The conversation JSON shards are inside
+the nested `Conversations__*-chatgpt-*.zip`; the Ads and Files archives are
+not needed by the current Markdown extraction workflow.
+
+After extracting the nested conversations ZIP, the bundle contains files named
 `conversations-000.json` … `conversations-091.json` instead of one
 `conversations.json`. Each file is a top-level JSON array. Files are
 sharded by conversation id (clean disjoint, zero duplicate ids), not
@@ -130,6 +136,73 @@ Because the live API kept the old shape, `online_sync.fetch.fetch_full`
 → `OnlineRenderer` → `ConversationExtractorV2` works unchanged. The
 fallback rule above is needed only when the extractor's input is a
 fresh bulk export bundle.
+
+### Nested conversation asset packaging
+
+The nested `Conversations__*-chatgpt-*.zip` can contain more than
+`chat.html`, `conversation_asset_file_names.json`, and the
+`conversations-*.json` shards. It can also include conversation-side asset
+payloads associated with uploaded or generated files.
+
+Observed packaging variants:
+
+- Older Privacy Portal bundles may store these assets with their apparent
+  extensions, such as `.png`, `.jpg`, `.jpeg`, or `.md`.
+- Newer Privacy Portal bundles may store many of these assets as `.dat` files.
+  The `.dat` extension is opaque packaging, not a single file format. Magic
+  bytes still identify ordinary payloads such as PNG, JPEG, PDF, ZIP-like, or
+  text/Markdown data.
+- `conversation_asset_file_names.json` can map opaque asset names back to
+  user-visible filenames.
+
+Do not infer asset type from the filename extension alone. Prefer signature
+detection when tooling needs to classify these files.
+
+Archive size is not a reliable proxy for conversation count. In observed
+Privacy Portal exports, newer bundles with more conversations can be smaller
+because the conversation-side asset payload is smaller. This appears to be
+driven by packaging and deduplication changes, not by ZIP compression alone:
+some assets that were duplicated inside both `Conversations__*.zip` and
+`Files__*.zip` in older exports may only appear in one place in newer exports.
+Likewise, duplicate identical assets inside the conversations archive may be
+reduced.
+
+For Markdown conversation extraction, the extractor primarily needs the
+`conversations-*.json` shards. The asset files are ancillary unless a workflow
+explicitly needs to restore or inspect referenced attachments.
+
+### Internal web tool invocation traces
+
+Older Privacy Portal conversation exports may include internal tool invocation
+nodes in the active conversation graph. Web-search turns can appear as
+assistant messages with `content_type: "code"` and a tool recipient such as
+`web.run`; their content is JSON-like command data for operations such as
+search, open, or find. Separate tool-result nodes may also be present.
+
+Newer Privacy Portal exports may omit these internal invocation and tool-result
+nodes from the conversation graph while retaining the final assistant answer
+and derived source metadata, such as:
+
+- citation markers in the rendered assistant text
+- `metadata.safe_urls`
+- `metadata.search_result_groups`
+- `metadata.content_references`
+
+In observed exports, the omitted web-tool command payloads were not recoverable
+from other files in the full Privacy Portal archive. They appeared to be
+removed rather than relocated.
+
+This affects extracted Markdown in two ways:
+
+- Older exports can expose internal web-tool command JSON as fenced code blocks
+  if the extractor treats all assistant `content_type: "code"` messages as
+  user-visible code.
+- Raw message statistics such as `code_messages` can differ between exports of
+  the same conversation because older exports count these internal tool-call
+  nodes and newer exports may not contain them.
+
+Extractor logic should treat assistant code messages with tool recipients
+separately from user-visible code examples when the goal is a clean transcript.
 
 ## Message Continuations
 

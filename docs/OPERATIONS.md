@@ -14,7 +14,7 @@
 
 ### System Profile
 - **Type**: Batch processing ETL tool
-- **Runtime**: Python 3.8+ standalone script
+- **Runtime**: Python 3.9+ package managed with uv
 - **Duration**: ~100 seconds for 6,000+ conversations
 - **Resource Usage**: 1-2GB RAM, minimal CPU
 - **Criticality**: Non-critical, offline processing
@@ -33,10 +33,10 @@
 
 ```bash
 # 1. Check Python version
-python --version  # Should be 3.8+
+uv run python --version  # Should be 3.9+
 
 # 2. Verify dependencies
-python -c "import yaml; print('PyYAML OK')"
+uv run python -c "import yaml; print('PyYAML OK')"
 
 # 3. Check disk space
 df -h .  # Need 2x input file size
@@ -54,7 +54,7 @@ touch data/output/test.txt && rm data/output/test.txt
 
 ```bash
 # Validate JSON structure
-python -c "
+uv run python -c "
 import json
 with open('data/raw/conversations.json') as f:
     data = json.load(f)
@@ -80,7 +80,7 @@ ls -la data/raw/conversations.json
 rm -rf data/output/*
 
 # 4. Run extraction with logging (markdown + JSON)
-python -m chatgpt_extractor --json-dir 2>&1 | tee extraction_$(date +%Y%m%d_%H%M%S).log
+uv run chatgpt-extractor --output-format both 2>&1 | tee extraction_$(date +%Y%m%d_%H%M%S).log
 
 # 5. Verify completion
 echo "Exit code: $?"
@@ -96,7 +96,7 @@ ls -la data/output/json/*.json | head -5
 free -h
 
 # 2. Run with memory monitoring
-/usr/bin/time -v python -m chatgpt_extractor
+/usr/bin/time -v uv run chatgpt-extractor
 
 # 3. Monitor in separate terminal
 watch -n 1 'ps aux | grep python | grep -v grep'
@@ -115,7 +115,7 @@ for json_file in exports/*.json; do
     
     mkdir -p "$output_dir"
     
-    python -m chatgpt_extractor "$json_file" "$output_dir" --json-dir 2>&1 | \
+    uv run chatgpt-extractor "$json_file" "$output_dir" --output-format both 2>&1 | \
         tee "logs/${basename}_$(date +%Y%m%d).log"
     
     if [ $? -eq 0 ]; then
@@ -132,7 +132,7 @@ done
 
 ```bash
 # Watch progress in real-time
-python -m chatgpt_extractor 2>&1 | while read line; do
+uv run chatgpt-extractor 2>&1 | while read line; do
     echo "$(date '+%H:%M:%S') $line"
 done
 ```
@@ -159,10 +159,10 @@ grep -i error extraction.log
 grep "Failed:" extraction.log | tail -1
 
 # View failure categories
-grep "FAILURE CATEGORIES" data/output_md/conversion_log.log -A 10
+grep "FAILURE CATEGORIES" data/output/conversion_log.log -A 10
 
 # Check schema evolution
-head -50 data/output_md/schema_evolution.log
+head -50 data/output/schema_evolution.log
 ```
 
 ## Troubleshooting Guide
@@ -171,7 +171,7 @@ head -50 data/output_md/schema_evolution.log
 
 | Symptom | Likely Cause | Solution | Prevention |
 |---------|--------------|----------|------------|
-| Script crashes immediately | Missing dependency | `pip install pyyaml` | Use requirements.txt |
+| Script crashes immediately | Missing dependency | `uv sync --group dev` | Use pyproject.toml |
 | "File not found" | Wrong path | Check file location | Use absolute paths |
 | Memory error | Large file | Increase RAM or split file | Monitor memory |
 | 0% success rate | Corrupted JSON | Validate JSON structure | Verify export |
@@ -185,7 +185,7 @@ head -50 data/output_md/schema_evolution.log
 ```python
 # Symptom in log:
 TypeError: argument of type 'NoneType' is not iterable
-File "extract_conversations_v2.py", line 252, in _contains_dalle_image
+File "src/chatgpt_extractor/processors.py", in _contains_dalle_image
 
 # Root cause:
 metadata is None but code tries: 'dalle' in metadata
@@ -195,7 +195,7 @@ Update to latest version or patch:
 if metadata and 'dalle' in metadata:
 
 # Verification:
-grep -n "in metadata" extract_conversations_v2.py
+rg -n "in metadata" src/chatgpt_extractor
 ```
 
 #### Problem: High Memory Usage
@@ -206,7 +206,7 @@ watch -n 1 free -h
 
 # If approaching limit:
 # 1. Split the input file
-python -c "
+uv run python -c "
 import json
 with open('data/raw/conversations.json') as f:
     data = json.load(f)
@@ -219,17 +219,17 @@ with open('data/raw/conversations.json') as f:
 "
 
 # 2. Process separately
-python extract_conversations_v2.py part1.json output1/
-python extract_conversations_v2.py part2.json output2/
+uv run chatgpt-extractor part1.json output1/
+uv run chatgpt-extractor part2.json output2/
 ```
 
 #### Problem: Specific Conversations Failing
 
 ```python
 # Analyze failures
-python -c "
+uv run python -c "
 import json
-with open('data/output_md/conversion_failures.json') as f:
+with open('data/output/conversion_failures.json') as f:
     failures = json.load(f)
     
 # Group by error type
@@ -250,10 +250,10 @@ for f in failures[:5]:
 ```bash
 # If extraction interrupted:
 # 1. Check what was completed
-ls data/output_md/*.md | wc -l
+ls data/output/md/*.md | wc -l
 
 # 2. Identify last processed
-ls -lt data/output_md/*.md | head -1
+ls -lt data/output/md/*.md | head -1
 
 # 3. Resume from checkpoint (requires code modification)
 # Add to process_conversation():
@@ -267,16 +267,16 @@ ls -lt data/output_md/*.md | head -1
 # If output is corrupted:
 # 1. Backup corrupted files
 mkdir backup_corrupted
-mv data/output_md backup_corrupted/
+mv data/output backup_corrupted/
 
 # 2. Clean output directory
-mkdir -p data/output_md
+mkdir -p data/output
 
 # 3. Re-run extraction
-python extract_conversations_v2.py
+uv run chatgpt-extractor
 
 # 4. Compare results
-diff -r backup_corrupted/output_md data/output_md
+diff -r backup_corrupted/output data/output
 ```
 
 ### Failed Conversation Extraction
@@ -285,7 +285,7 @@ diff -r backup_corrupted/output_md data/output_md
 # Extract only failed conversations
 # 1. Get failed IDs from log
 import json
-with open('data/output_md/conversion_failures.json') as f:
+with open('data/output/conversion_failures.json') as f:
     failed_ids = [f['conversation_id'] for f in json.load(f)]
 
 # 2. Create subset JSON
@@ -298,7 +298,7 @@ with open('failed_only.json', 'w') as f:
     json.dump(failed_convs, f)
 
 # 3. Process with debugging
-python -u extract_conversations_v2.py failed_only.json debug_output/
+uv run python -u -m chatgpt_extractor failed_only.json debug_output/
 ```
 
 ## Maintenance Tasks
@@ -317,11 +317,11 @@ df -h data/
 
 ```bash
 # Archive processed files
-tar -czf "archive_$(date +%Y%m%d).tar.gz" data/output_md/
+tar -czf "archive_$(date +%Y%m%d).tar.gz" data/output/
 mv archive_*.tar.gz archives/
 
 # Update dependencies
-pip install --upgrade pyyaml
+uv sync --upgrade --group dev
 ```
 
 ### Monthly Maintenance
@@ -334,7 +334,7 @@ for log in logs/*.log; do
 done
 
 # Schema evolution review
-cat data/output_md/schema_evolution.log | grep "Unknown"
+cat data/output/schema_evolution.log | grep "Unknown"
 ```
 
 ## Emergency Procedures
@@ -343,7 +343,7 @@ cat data/output_md/schema_evolution.log | grep "Unknown"
 
 ```bash
 # 1. Identify process
-ps aux | grep extract_conversations
+ps aux | grep chatgpt-extractor
 
 # 2. Check if actually processing
 strace -p [PID] 2>&1 | head -20
@@ -354,7 +354,7 @@ kill -TERM [PID]
 kill -KILL [PID]  # Force if needed
 
 # 4. Check partial output
-ls -la data/output_md/ | tail
+ls -la data/output/md/ | tail
 ```
 
 ### Disk Full
@@ -366,10 +366,10 @@ du -sh data/*
 
 # 2. Emergency cleanup
 # Remove duplicates
-fdupes -dN data/output_md/
+fdupes -dN data/output/md/
 
 # 3. Compress output
-gzip data/output_md/*.md
+gzip data/output/md/*.md
 ```
 
 ### Memory Exhaustion
@@ -384,7 +384,7 @@ sync && echo 3 > /proc/sys/vm/drop_caches
 
 # 3. Limit memory usage
 ulimit -v 2097152  # Limit to 2GB
-python extract_conversations_v2.py
+uv run chatgpt-extractor
 ```
 
 ## Performance Tuning
@@ -400,7 +400,7 @@ lsblk  # Verify SSD
 ulimit -n 4096
 
 # 3. Python optimizations
-python -O extract_conversations_v2.py  # Run optimized
+uv run python -O -m chatgpt_extractor  # Run optimized
 
 # 4. Parallel processing (future enhancement)
 # Split file and process in parallel
@@ -410,7 +410,7 @@ python -O extract_conversations_v2.py  # Run optimized
 
 ```bash
 # Time different phases
-time python -c "
+time uv run python -c "
 import json, time
 start = time.time()
 with open('data/raw/conversations.json') as f:
@@ -419,7 +419,7 @@ print(f'Load time: {time.time()-start:.2f}s')
 "
 
 # Full benchmark
-/usr/bin/time -v python extract_conversations_v2.py 2>&1 | \
+/usr/bin/time -v uv run chatgpt-extractor 2>&1 | \
     tee benchmark_$(date +%Y%m%d).log
 ```
 
@@ -472,14 +472,14 @@ Changes to prevent recurrence
 echo "=== ChatGPT Extractor Health Check ==="
 
 # Check Python
-python --version || echo "❌ Python not found"
+uv run python --version || echo "❌ Python not found"
 
 # Check dependencies
-python -c "import yaml" 2>/dev/null && echo "✓ PyYAML installed" || echo "❌ PyYAML missing"
+uv run python -c "import yaml" 2>/dev/null && echo "✓ PyYAML installed" || echo "❌ PyYAML missing"
 
 # Check directories
 [ -d "data/raw" ] && echo "✓ Input directory exists" || echo "❌ Input directory missing"
-[ -d "data/output_md" ] && echo "✓ Output directory exists" || echo "❌ Output directory missing"
+[ -d "data/output/md" ] && echo "✓ Output directory exists" || echo "❌ Output directory missing"
 
 # Check input file
 if [ -f "data/raw/conversations.json" ]; then
