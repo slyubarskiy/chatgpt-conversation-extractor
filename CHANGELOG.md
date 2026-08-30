@@ -77,6 +77,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_time`, matching "the assistant began replying" semantics.
 
 ### Fixed
+- A malformed URL no longer aborts rendering of the entire
+  conversation. The URL-extraction regex (`https?://[^\s<>"]+`) does not
+  exclude `]` or `)`, so a markdown link written as
+  `[https://x.com](https://x.com)` is captured whole as
+  `https://x.com](https://x.com`. `urlsplit` raises
+  `ValueError: Invalid IPv6 URL` on a netloc containing an unmatched
+  bracket, and that propagated out of `_normalize_web_url` and killed the
+  whole conversation over one junk capture — observed on 3 of 41
+  conversations in a live incremental sync. Unparseable URLs are now
+  dropped, which is how every caller already treats a `None` return.
+  Well-formed bracketed IPv6 hosts (`http://[::1]:8080/`) still parse.
 - Frontmatter `created:` and `updated:` are now emitted as true UTC
   regardless of host timezone. Prior to this change, `extract_metadata`
   called `datetime.fromtimestamp(t).isoformat() + "Z"`, which returns

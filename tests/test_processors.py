@@ -341,3 +341,53 @@ class TestMessageProcessor:
             "The user provided" not in result
             or len(result) < len(msg["content"]["text"]) * 0.9
         )
+
+
+class TestNormalizeWebUrlMalformedInput:
+    """Guard against URLs that ``urllib.parse.urlsplit`` refuses to parse.
+
+    Real-world trigger: the URL-extraction regex ``https?://[^\\s<>"]+``
+    does not exclude ``]`` or ``)``, so a markdown link written as
+    ``[https://example.com](https://example.com)`` is captured whole as
+    ``https://example.com](https://example.com``. ``urlsplit`` raises
+    ``ValueError: Invalid IPv6 URL`` on a netloc containing an unmatched
+    bracket, which propagated up and aborted rendering of the *entire*
+    conversation. Observed live on 3 of 41 conversations in the
+    2026-08-30 sync.
+    """
+
+    @staticmethod
+    def _norm(value):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._normalize_web_url(value)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Captured from live conversations that failed to render.
+            "https://Calendly.com](https://Calendly.com",
+            "https://calendar.boardy.ai](https://calendar.boardy.ai",
+            # Unmatched opening bracket is rejected by urlsplit too.
+            "https://exa[mple.com/path",
+        ],
+    )
+    def test_malformed_url_returns_none_instead_of_raising(self, url):
+        """Unparseable URLs must be dropped, not propagated as an exception.
+
+        Callers treat ``None`` as "not a usable URL" already — ``add_url``
+        skips falsy values — so returning None loses the junk capture while
+        keeping the rest of the conversation renderable.
+        """
+        assert self._norm(url) is None
+
+    def test_legitimate_ipv6_url_still_parses(self):
+        """The guard must not swallow well-formed bracketed IPv6 hosts."""
+        assert self._norm("http://[::1]:8080/path") == "http://[::1]:8080/path"
+
+    def test_valid_url_normalization_unaffected(self):
+        """Existing utm_source stripping behaviour is unchanged."""
+        assert (
+            self._norm("https://example.com/a?utm_source=chatgpt.com")
+            == "https://example.com/a"
+        )
