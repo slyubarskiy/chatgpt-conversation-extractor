@@ -2,12 +2,15 @@
 Message processing components for content extraction and filtering.
 """
 
+import logging
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Dict, List, Optional, Any, Tuple
 
 from .config import WEB_URLS_KEYS
 from .trackers import SchemaEvolutionTracker
+
+logger = logging.getLogger(__name__)
 
 
 class MessageProcessor:
@@ -552,21 +555,35 @@ class MessageProcessor:
         if not isinstance(value, str) or not value.startswith(("http://", "https://")):
             return None
 
-        parts = urlsplit(value)
-        query = urlencode(
-            [
-                (key, val)
-                for key, val in parse_qsl(parts.query, keep_blank_values=True)
-                if not (key.lower() == "utm_source" and val.lower() == "chatgpt.com")
-            ],
-            doseq=True,
-        )
+        # The URL-extraction regex (https?://[^\s<>"]+) does not exclude ']'
+        # or ')', so a markdown link written as [https://x.com](https://x.com)
+        # is captured whole as 'https://x.com](https://x.com'. urlsplit raises
+        # ValueError on a netloc holding an unmatched bracket, and that used to
+        # propagate all the way up and abort rendering of the ENTIRE
+        # conversation over one junk capture. Treat unparseable input the way
+        # every caller already treats None -- as "not a usable URL" -- so the
+        # bad capture is dropped and the conversation still renders.
+        try:
+            parts = urlsplit(value)
+            query = urlencode(
+                [
+                    (key, val)
+                    for key, val in parse_qsl(parts.query, keep_blank_values=True)
+                    if not (
+                        key.lower() == "utm_source" and val.lower() == "chatgpt.com"
+                    )
+                ],
+                doseq=True,
+            )
 
-        fragment = parts.fragment
-        if ":~:text=" in fragment:
-            fragment = fragment.split(":~:text=", 1)[0]
+            fragment = parts.fragment
+            if ":~:text=" in fragment:
+                fragment = fragment.split(":~:text=", 1)[0]
 
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
+        except ValueError:
+            logger.debug("Dropping unparseable URL: %r", value[:200])
+            return None
 
     def extract_file_names(self, msg: Dict[str, Any]) -> List[str]:
         """Extract uploaded file names from message attachments."""
