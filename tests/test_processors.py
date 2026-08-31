@@ -391,3 +391,91 @@ class TestNormalizeWebUrlMalformedInput:
             self._norm("https://example.com/a?utm_source=chatgpt.com")
             == "https://example.com/a"
         )
+
+
+class TestUrlBalancedDelimiterTrimming:
+    """URL captures must stop where the URL stops, not where whitespace does.
+
+    The extraction regex ``https?://[^\\s<>"]+`` cannot express balanced
+    matching, so it runs past a URL's end into surrounding markup. The common
+    case is a markdown link, ``[https://x.com](https://x.com)``, which yields
+    ``https://x.com](https://x.com``. A blanket "strip trailing brackets" would
+    corrupt legitimate URLs that contain balanced delimiters — Wikipedia
+    disambiguation paths and bracketed IPv6 hosts — so depth counting is used
+    instead. See ``_trim_unbalanced_delimiters``.
+    """
+
+    @staticmethod
+    def _trim(value):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._trim_unbalanced_delimiters(value)
+
+    @staticmethod
+    def _extract(text):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._extract_urls_from_text(text)
+
+    @pytest.mark.parametrize(
+        "captured,expected",
+        [
+            # Real junk captures observed in the vault (2026-08-30 / 08-31 syncs).
+            (
+                "https://meet.google.com/qrk-uvwq-hew](https://meet.google.com/qrk-uvwq-hew)",
+                "https://meet.google.com/qrk-uvwq-hew",
+            ),
+            (
+                "https://Calendly.com](https://Calendly.com",
+                "https://Calendly.com",
+            ),
+            # Trailing ')' from a markdown link with no opener in the URL.
+            ("https://example.com/page)", "https://example.com/page"),
+        ],
+    )
+    def test_unbalanced_closer_truncates_capture(self, captured, expected):
+        assert self._trim(captured) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Balanced parens are legitimate URL content — must survive intact.
+            "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            "https://example.com/a_(b)_c_(d)",
+            # Bracketed IPv6 host is balanced too.
+            "http://[::1]:8080/path",
+            # Nothing to trim.
+            "https://example.com/plain?a=1#frag",
+        ],
+    )
+    def test_balanced_delimiters_are_preserved(self, url):
+        assert self._trim(url) == url
+
+    def test_markdown_link_yields_a_single_clean_url(self):
+        """``[url](url)`` is ONE regex capture, not two, and must trim clean.
+
+        Nothing between the ``]`` and the ``(`` is excluded by the character
+        class, so the regex runs straight through the markup and returns
+        ``https://x.com/a](https://x.com/a)`` as a single token. Trimming at
+        the unbalanced ``]`` leaves exactly one URL.
+        """
+        text = "see [https://x.com/a](https://x.com/a) for details"
+        assert self._extract(text) == ["https://x.com/a"]
+
+    def test_wikipedia_link_in_markdown_keeps_its_parens(self):
+        """The hard case: markdown markup AND legitimate parens together."""
+        text = "[Python](https://en.wikipedia.org/wiki/Python_(programming_language))"
+        assert self._extract(text) == [
+            "https://en.wikipedia.org/wiki/Python_(programming_language)"
+        ]
+
+    def test_scheme_only_capture_is_dropped(self):
+        """A capture trimming down to a bare scheme carries no host."""
+        assert self._extract("junk https://] more") == []
+
+    def test_plain_text_urls_unaffected(self):
+        text = "a https://one.example.com and https://two.example.com/x?y=1"
+        assert self._extract(text) == [
+            "https://one.example.com",
+            "https://two.example.com/x?y=1",
+        ]
