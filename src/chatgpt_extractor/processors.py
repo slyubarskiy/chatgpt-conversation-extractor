@@ -12,6 +12,15 @@ from .trackers import SchemaEvolutionTracker
 
 logger = logging.getLogger(__name__)
 
+# Broad first-pass URL match over free text. It deliberately cannot express
+# balanced delimiters -- regex does not do that -- so every capture is passed
+# through _trim_unbalanced_delimiters before use.
+URL_IN_TEXT_RE = re.compile(r'https?://[^\s<>"]+')
+
+# Closing delimiter -> its opener. A closer with no matching opener earlier in
+# the URL means the regex ran past the URL's end into surrounding markup.
+_URL_CLOSERS = {")": "(", "]": "["}
+
 
 class MessageProcessor:
     """Process and filter messages with enhanced content handling."""
@@ -416,8 +425,7 @@ class MessageProcessor:
                 add_url(f"https://{domain}")
         elif content_type == "tether_browsing_display":
             if result := content.get("result"):
-                # Critical: use module-level 're' (local import caused 89% of failures)
-                for u in re.findall(r'https?://[^\s<>"]+', str(result)):
+                for u in self._extract_urls_from_text(str(result)):
                     add_url(u)
             if url := content.get("url"):
                 add_url(url)
@@ -450,7 +458,7 @@ class MessageProcessor:
             if isinstance(parts, list):
                 for part in parts:
                     if isinstance(part, str):
-                        for u in re.findall(r'https?://[^\s<>"]+', part):
+                        for u in self._extract_urls_from_text(part):
                             add_url(u)
 
         # ---- Conv-level safe_urls (config-gated, URL-only) ----
@@ -548,6 +556,55 @@ class MessageProcessor:
                             add_url(site.get("url"))
 
         return sorted(urls), rich_sources
+
+    @staticmethod
+    def _trim_unbalanced_delimiters(url: str) -> str:
+        """Truncate a captured URL at its first unbalanced closing delimiter.
+
+        ``URL_IN_TEXT_RE`` stops only at whitespace, ``<``, ``>`` and ``"``, so
+        a markdown link ``[https://x.com](https://x.com)`` is captured whole as
+        ``https://x.com](https://x.com``. Unconditionally stripping trailing
+        brackets would be wrong: plenty of real URLs contain *balanced*
+        delimiters, notably Wikipedia disambiguation paths
+        (``/wiki/Python_(programming_language)``) and bracketed IPv6 hosts
+        (``http://[::1]:8080/``). Counting depth distinguishes the two -- a
+        closer that has no opener earlier in the same URL was never part of it.
+
+        Args:
+            url: A raw capture from ``URL_IN_TEXT_RE``.
+
+        Returns:
+            The capture truncated at the first unbalanced closer, or unchanged
+            when every delimiter balances.
+        """
+        depth = {"(": 0, "[": 0}
+        for index, char in enumerate(url):
+            if char in depth:
+                depth[char] += 1
+            elif char in _URL_CLOSERS:
+                opener = _URL_CLOSERS[char]
+                if depth[opener] == 0:
+                    return url[:index]
+                depth[opener] -= 1
+        return url
+
+    @classmethod
+    def _extract_urls_from_text(cls, text: str) -> List[str]:
+        """Extract URLs from free text, stopping each at surrounding markup.
+
+        Duplicates are intentionally preserved -- a markdown link contains its
+        URL twice, and the caller collects into a set -- so this stays a pure
+        "what did the text contain" helper.
+        """
+        urls: List[str] = []
+        for raw in URL_IN_TEXT_RE.findall(text):
+            trimmed = cls._trim_unbalanced_delimiters(raw)
+            # A capture that trims back to just the scheme had no host at all
+            # (e.g. the text contained a bare "https://]").
+            if trimmed.rstrip("/") in ("http:", "https:"):
+                continue
+            urls.append(trimmed)
+        return urls
 
     @staticmethod
     def _normalize_web_url(value: Any) -> Optional[str]:

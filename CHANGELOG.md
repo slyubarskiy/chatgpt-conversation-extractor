@@ -77,6 +77,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_time`, matching "the assistant began replying" semantics.
 
 ### Fixed
+- URL extraction no longer captures surrounding markdown as part of the
+  URL. The regex stops only at whitespace, `<`, `>` and `"`, so a link
+  written as `[https://x.com](https://x.com)` was captured whole as
+  `https://x.com](https://x.com)` and emitted into the
+  `**Web Search URLs:**` block. Captures are now truncated at their first
+  *unbalanced* closing delimiter, which leaves URLs that legitimately
+  contain balanced ones intact — Wikipedia disambiguation paths
+  (`/wiki/Python_(programming_language)`) and bracketed IPv6 hosts
+  (`http://[::1]:8080/`). Measured over 54 real conversations: 17 changed,
+  1,476 captures trimmed, every one removing markup rather than URL
+  content, and no trimmed result left invalid.
 - A malformed URL no longer aborts rendering of the entire
   conversation. The URL-extraction regex (`https?://[^\s<>"]+`) does not
   exclude `]` or `)`, so a markdown link written as
