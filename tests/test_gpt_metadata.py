@@ -1389,3 +1389,87 @@ def test_integration_conversation_origin_yaml_parses(tmp_path):
     parsed = yaml.safe_load(fm)
     assert parsed["conversation_origin"] == "tpp"
     assert parsed["models_used"] == ["gpt-5.6-sol-wm"]
+
+
+# ---------------------------------------------------------------------------
+# extract_conv_branch_meta — branch → parent lineage
+# ---------------------------------------------------------------------------
+#
+# ChatGPT records branch lineage per-message only: the message the user
+# branched *from* carries metadata.branching_from_conversation_id. Verified
+# across 202 real branch conversations (2026-09-10) that exactly one message
+# carries it, so the first hit is authoritative.
+
+
+def _branch_conv(parent_id="parent-id-1", title="Parent Title", extra_msgs=0):
+    """Minimal conversation whose second message carries branch lineage.
+
+    Mirrors the real shape captured from the Pavel Bocharov family: the
+    carrier is mid-thread, is an assistant turn, and sits alongside ordinary
+    messages that have plain metadata dicts.
+    """
+    mapping = {
+        "m0": {"id": "m0", "message": {"author": {"role": "user"}, "metadata": {}}},
+        "m1": {
+            "id": "m1",
+            "message": {
+                "author": {"role": "assistant"},
+                "metadata": {
+                    "branching_from_conversation_id": parent_id,
+                    "branching_from_conversation_title": title,
+                    "branching_from_conversation_owner": "user-abc",
+                },
+            },
+        },
+    }
+    for i in range(extra_msgs):
+        mapping[f"x{i}"] = {
+            "id": f"x{i}",
+            "message": {"author": {"role": "user"}, "metadata": {}},
+        }
+    return {"id": "child-id", "mapping": mapping}
+
+
+def test_branch_meta_absent_for_non_branch_conversation():
+    from chatgpt_extractor.gpt_metadata import extract_conv_branch_meta
+
+    conv = {"id": "c", "mapping": {"m0": {"message": {"metadata": {}}}}}
+    assert extract_conv_branch_meta(conv) == {}
+
+
+def test_branch_meta_returns_parent_id():
+    from chatgpt_extractor.gpt_metadata import extract_conv_branch_meta
+
+    out = extract_conv_branch_meta(_branch_conv(parent_id="6a10a147"))
+    assert out == {"branched_from_id": "6a10a147"}
+
+
+def test_branch_meta_tolerates_none_metadata_and_missing_messages():
+    """Defensive guard — the documented NoneType failure mode.
+
+    Real conversations contain mapping nodes with no ``message`` at all (the
+    root node), and messages whose ``metadata`` is None. Either raises a
+    TypeError if guarded with a bare ``in`` check.
+    """
+    from chatgpt_extractor.gpt_metadata import extract_conv_branch_meta
+
+    conv = {
+        "id": "c",
+        "mapping": {
+            "root": {"id": "root", "message": None},
+            "m0": {"id": "m0", "message": {"metadata": None}},
+            "m1": {"id": "m1"},
+            "m2": {
+                "id": "m2",
+                "message": {"metadata": {"branching_from_conversation_id": "p9"}},
+            },
+        },
+    }
+    assert extract_conv_branch_meta(conv) == {"branched_from_id": "p9"}
+
+
+def test_branch_meta_handles_empty_mapping():
+    from chatgpt_extractor.gpt_metadata import extract_conv_branch_meta
+
+    assert extract_conv_branch_meta({"id": "c"}) == {}
+    assert extract_conv_branch_meta({"id": "c", "mapping": {}}) == {}
