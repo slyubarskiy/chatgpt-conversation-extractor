@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Branch conversations now link back to the chat they were branched
+  from. ChatGPT records the lineage per-message only, on the last turn
+  inherited from the parent; that turn gains a footer block:
+  `**Branched from:** [Parent Title](https://chatgpt.com/c/<id>) ` +
+  the bare id in backticks. Frontmatter gains `branched_from_id`.
+  A chatgpt.com URL is used rather than a wiki-link because the
+  parent's vault filename is not knowable at render time — it depends
+  on collision suffixing, filename sanitisation and later renames — so
+  only the link text can age, never the target. The frontmatter holds
+  the id alone: the sibling title ChatGPT stores is a branch-time
+  snapshot, stale for 21% of real branches, and a stale value in a
+  machine-readable field invites callers to key on it. Measured across
+  1,619 synced conversations: 202 are branches (12.5%), each carrying
+  exactly one marker, and all 202 parents resolve to a live file.
+  Controlled by `branch_links` (default on).
 - Per-type `web_urls` config overlay for URL extraction control.
   Accepts a preset string (`off | citations | rich`) or an explicit
   per-type map at YAML key `web_urls`, with per-type levels

@@ -45,6 +45,7 @@ class ConversationExtractorV2:
         preserve_timestamps: bool = True,
         per_turn_timestamps: Optional[bool] = None,
         gpt_metadata: Optional[bool] = None,
+        branch_links: Optional[bool] = None,
         gpt_names_xlsx: Optional[str] = None,
         web_urls: Optional[Union[str, Dict[str, str]]] = None,
         config_path: Optional[str] = None,
@@ -141,6 +142,7 @@ class ConversationExtractorV2:
         if (
             per_turn_timestamps is None
             or gpt_metadata is None
+            or branch_links is None
             or gpt_names_xlsx is None
             or web_urls is None
         ):
@@ -151,6 +153,8 @@ class ConversationExtractorV2:
             per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
         if gpt_metadata is None:
             gpt_metadata = bool(_cfg.get("gpt_metadata", True))
+        if branch_links is None:
+            branch_links = bool(_cfg.get("branch_links", True))
         if gpt_names_xlsx is None:
             # ``None`` here means "no name resolution" — distinct from
             # the per_turn / gpt_metadata booleans which default True.
@@ -165,6 +169,7 @@ class ConversationExtractorV2:
         self.web_urls: Dict[str, str] = _resolve_web_urls(web_urls, log=self.logger)
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
+        self.branch_links = branch_links
         # Load the gpt_id → name map once at construct time; downstream
         # reads (extract_metadata + generate_markdown) reuse the same
         # dict. Missing / bad sidecar → empty dict, no crash.
@@ -501,6 +506,7 @@ class ConversationExtractorV2:
         # online_sync inherits via OnlineRenderer wrapping this class.
         if self.gpt_metadata:
             from .gpt_metadata import (
+                extract_conv_branch_meta,
                 extract_conv_deep_research_meta,
                 extract_conv_gpt_meta,
             )
@@ -518,6 +524,11 @@ class ConversationExtractorV2:
             # become greppable even though their artifact body remains
             # absent from the export.
             metadata.update(extract_conv_deep_research_meta(conv))
+            # Branch lineage. Empty dict for non-branch convs, so this is a
+            # safe no-op merge. Only the parent id lands in frontmatter — the
+            # human-readable parent title travels in the rendered link, where
+            # a stale snapshot cannot mislead a machine reader.
+            metadata.update(extract_conv_branch_meta(conv))
 
         return metadata
 
@@ -798,6 +809,23 @@ class ConversationExtractorV2:
                     if web_sources:
                         msg_data["web_sources"] = web_sources
 
+                    # Branch lineage, stashed unconditionally like the GPT
+                    # signals above — the cost is a dict lookup and the
+                    # render-time flag decides whether it reaches the output.
+                    # ``metadata`` is guarded because real exports carry
+                    # messages with metadata=None.
+                    _bmeta = msg.get("metadata") or {}
+                    if _parent := _bmeta.get("branching_from_conversation_id"):
+                        msg_data["branched_from"] = {
+                            "id": _parent,
+                            # Fall back to the id so the rendered link never
+                            # degenerates to an empty label.
+                            "title": (
+                                _bmeta.get("branching_from_conversation_title")
+                                or _parent
+                            ),
+                        }
+
                     files = self.message_processor.extract_file_names(msg)
                     if files:
                         msg_data["files"] = files
@@ -918,6 +946,16 @@ class ConversationExtractorV2:
                             current["web_sources"] = []
                         current["web_sources"].extend(messages[j]["web_sources"])
 
+                    # Branch lineage can sit on any segment of a merged reply,
+                    # not just the first. There is exactly one marker per
+                    # conversation, so the first one found wins and later
+                    # segments cannot contradict it.
+                    if (
+                        "branched_from" in messages[j]
+                        and "branched_from" not in current
+                    ):
+                        current["branched_from"] = messages[j]["branched_from"]
+
                     j += 1
 
                 merged_msg = {"role": "assistant", "content": combined_content}
@@ -934,6 +972,15 @@ class ConversationExtractorV2:
                 for k in ("model_slug", "gizmo_id", "plugin_namespace"):
                     if k in current:
                         merged_msg[k] = current[k]
+
+                # merged_msg is built from scratch, so every key that must
+                # survive a merge has to be copied explicitly. Omitting this
+                # silently dropped the branch footer for any conversation
+                # whose carrier fell inside a merged run, while the
+                # frontmatter id still appeared (it comes from a separate
+                # conversation-level scan) -- a confusing half-working state.
+                if "branched_from" in current:
+                    merged_msg["branched_from"] = current["branched_from"]
 
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
@@ -1087,6 +1134,26 @@ class ConversationExtractorV2:
                     for url in remaining:
                         lines.append(f"- {url}")
 
+            # Branch lineage footer — the last block on the message, because
+            # it describes conversation *structure* rather than this message's
+            # content or sources. It renders on the message the user branched
+            # FROM (the last turn inherited from the parent), which is where
+            # the divergence actually happens.
+            #
+            # A chatgpt.com URL is used rather than an Obsidian wiki-link
+            # because the parent's vault filename is not knowable here: it
+            # depends on collision suffixing, filename sanitisation and later
+            # renames, all decided outside this function. The URL survives all
+            # three — only the link text can age. The bare id repeats on the
+            # same line so downstream tooling can key on it without parsing
+            # the markdown link.
+            if self.branch_links and (branched := msg.get("branched_from")):
+                lines.append("")
+                lines.append(
+                    f"**Branched from:** [{branched['title']}]"
+                    f"(https://chatgpt.com/c/{branched['id']}) `{branched['id']}`"
+                )
+
             lines.append("")
 
         return "\n".join(lines)
@@ -1231,6 +1298,7 @@ class ConversationExtractorV2:
                 "deep_research",
                 "deep_research_version",
                 "conversation_origin",
+                "branched_from_id",
             ):
                 if k in metadata:
                     json_data[k] = metadata[k]
