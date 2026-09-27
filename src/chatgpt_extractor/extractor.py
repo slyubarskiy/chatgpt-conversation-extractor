@@ -874,7 +874,10 @@ class ConversationExtractorV2:
                             p for p in rm_parts if isinstance(p, str) and p
                         )
                         if text:
-                            dr_data = {"role": "assistant", "content": text}
+                            dr_data: Dict[str, Any] = {
+                                "role": "assistant",
+                                "content": text,
+                            }
                             # Inherit per-turn signals from the
                             # report_message's own metadata (its
                             # model_slug / gizmo_id / plugin_namespace
