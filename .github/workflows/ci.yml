@@ -19,8 +19,10 @@ jobs:
       matrix:
         # Ubuntu is pinned rather than ubuntu-latest: that label moves to
         # Ubuntu 26 from 2026-10-19, and Python 3.9 (EOL) may not be built
-        # for it. Every other ubuntu job uses the same pin, and so does the
-        # coverage-upload condition below; change them together.
+        # for it. Revisit once 3.9 leaves the matrix. The coverage-upload
+        # `if:` below matches this label exactly: change one without the
+        # other and the upload is silently skipped. The single-Python jobs
+        # use the same pin for consistency.
         os: [ubuntu-24.04, windows-latest, macos-latest]
         python-version: ['3.9', '3.10', '3.11', '3.12']
         exclude:
@@ -70,7 +72,10 @@ jobs:
     - name: Type checking with mypy
       run: |
         mypy src/chatgpt_extractor --ignore-missing-imports --no-strict-optional
-      continue-on-error: true  # Don't fail build but show issues
+      # Non-blocking while mypy is unpinned (>=1.5.1): a new release could
+      # fail the weekly scheduled run with no code change. Make it gate
+      # together with a version pin, as Black did in #22.
+      continue-on-error: true
     
     - name: Run unit tests
       run: |

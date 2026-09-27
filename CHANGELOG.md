@@ -74,12 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dicts (e.g. the live-sync renderer).
 
 ### Changed
-- CI: GitHub Actions bumped to their Node 24 majors (checkout v7,
+- CI: GitHub Actions bumped to their current majors (checkout v7,
   setup-python v7, cache v6, upload-artifact v7, download-artifact v8,
   codecov v7, action-gh-release v3), clearing the Node 20 deprecation
-  warning. Ubuntu runners pinned to `ubuntu-24.04` ahead of the
-  `ubuntu-latest` move to Ubuntu 26 on 2026-10-19, which may not ship
-  Python 3.9. The mypy step's one reported error (a dict inferred as
+  warning (#26). All run on Node 24 except codecov v7, which is a
+  composite action. Ubuntu runners pinned to `ubuntu-24.04` ahead of
+  the `ubuntu-latest` move to Ubuntu 26 from 2026-10-19, which may not
+  ship Python 3.9. The mypy step's one reported error (a dict inferred as
   `Dict[str, str]` in the Deep Research path) is fixed with an explicit
   annotation; no runtime change. mypy stays non-blocking while its
   version is unpinned.
