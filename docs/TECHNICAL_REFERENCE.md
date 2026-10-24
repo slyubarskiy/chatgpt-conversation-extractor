@@ -287,6 +287,9 @@ class MessageProcessor:
             - Must be consecutive in graph (_graph_index)
             - Combine content with double newline
             - Merge citations and URLs
+            - Keep the first segment's create_time (the rendered stamp)
+            - Add last_segment_time: the latest segment create_time, when
+              any segment has one (not rendered; for dating by last turn)
         """
 ```
 

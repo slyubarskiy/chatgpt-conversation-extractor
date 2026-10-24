@@ -289,3 +289,74 @@ def test_merge_continuations_uses_first_segments_create_time(
     # Earliest assistant segment's start time — when the response began.
     assert assistant.get("create_time") == 1716638460.0
     assert "A1" in assistant["content"] and "A2" in assistant["content"]
+
+
+@pytest.mark.parametrize(
+    "segment_times, expected",
+    [
+        # The usual case: the reply finished with its last segment.
+        ([1716638460.0, 1716638480.0, 1716638900.0], 1716638900.0),
+        # A segment without a source time does not hide the others.
+        ([1716638460.0, 1716638480.0, None], 1716638480.0),
+        # Latest, not last: segment order follows the graph, not the clock.
+        ([1716638460.0, 1716638990.0, 1716638480.0], 1716638990.0),
+    ],
+)
+def test_merge_continuations_records_the_latest_segment_time(
+    _extractor_args, _isolated_config_env, segment_times, expected
+):
+    """A merged reply keeps when it finished, beside when it began.
+
+    Callers that date a note by its last turn need the finish; the first
+    segment's ``create_time`` can be hours or months earlier (a scheduled
+    task appends a segment per run).
+    """
+    ext = ConversationExtractorV2(**_extractor_args)
+    msgs = [{"role": "user", "content": "Q", "create_time": 1716638400.0}]
+    for n, ct in enumerate(segment_times):
+        segment = {"role": "assistant", "content": f"A{n}"}
+        if ct is not None:
+            segment["create_time"] = ct
+        msgs.append(segment)
+    assistant = ext.merge_continuations(msgs)[-1]
+    assert assistant["create_time"] == 1716638460.0
+    assert assistant["last_segment_time"] == expected
+
+
+def test_merge_continuations_omits_last_segment_time_without_any_time(
+    _extractor_args, _isolated_config_env
+):
+    ext = ConversationExtractorV2(**_extractor_args)
+    msgs = [
+        {"role": "user", "content": "Q"},
+        {"role": "assistant", "content": "A1"},
+        {"role": "assistant", "content": "A2"},
+    ]
+    assert "last_segment_time" not in ext.merge_continuations(msgs)[-1]
+
+
+def test_last_segment_time_does_not_change_rendered_output(
+    _extractor_args, _isolated_config_env
+):
+    """The new key is bookkeeping only: markdown and JSON stay byte-identical.
+
+    Downstream vault diffs compare notes byte for byte, so a key that leaked
+    into either output would show up as a change in every merged reply.
+    """
+    ext = ConversationExtractorV2(output_format="both", **_extractor_args)
+    merged = ext.merge_continuations(
+        [
+            {"role": "user", "content": "Q", "create_time": 1716638400.0},
+            {"role": "assistant", "content": "A1", "create_time": 1716638460.0},
+            {"role": "assistant", "content": "A2", "create_time": 1716638480.0},
+        ]
+    )
+    stripped = [
+        {k: v for k, v in m.items() if k != "last_segment_time"} for m in merged
+    ]
+    assert ext.generate_markdown(_metadata(), merged) == ext.generate_markdown(
+        _metadata(), stripped
+    )
+    assert json.dumps(ext.generate_json_data(_metadata(), merged)) == json.dumps(
+        ext.generate_json_data(_metadata(), stripped)
+    )
