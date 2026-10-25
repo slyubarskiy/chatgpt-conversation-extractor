@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A merged assistant reply now records when it finished as well as when
+  it began: `merge_continuations` adds `last_segment_time`, the latest
+  `create_time` among the merged segments, beside the first segment's
+  `create_time` (still the rendered stamp). Callers that date a file by its
+  last turn need the finish; the start can be months earlier when a
+  scheduled task appends one segment per run. Bookkeeping only: neither the
+  markdown nor the JSON output reads the key, so output is byte-identical.
 - Branch conversations now link back to the chat they were branched
   from. ChatGPT records the lineage per-message only, on the last turn
   inherited from the parent; that turn gains a footer block:

@@ -906,6 +906,9 @@ class ConversationExtractorV2:
         """Merge consecutive assistant messages that are continuations.
 
         Validates messages are truly consecutive using graph indices when available.
+        A merged reply keeps its first segment's ``create_time`` (the rendered
+        stamp) and gains ``last_segment_time``, the latest segment time, when
+        any segment has one. Unmerged messages are returned as they came.
         """
         if not messages:
             return messages
@@ -968,6 +971,20 @@ class ConversationExtractorV2:
                 # the assistant begin replying."
                 if "create_time" in current:
                     merged_msg["create_time"] = current["create_time"]
+
+                # ...and the latest segment's as the time it finished. Only
+                # the start is rendered; the finish is kept for callers that
+                # date a file by its last turn, which the start can
+                # understate by months (a scheduled task appends one segment
+                # per run). Latest rather than last because segment order is
+                # graph order, not clock order. Neither output reads this key.
+                segment_times = [
+                    m["create_time"]
+                    for m in messages[i:j]
+                    if m.get("create_time") is not None
+                ]
+                if segment_times:
+                    merged_msg["last_segment_time"] = max(segment_times)
 
                 # Per-turn GPT signals inherit from the earliest segment too
                 # (the assistant's reply may continue across segments but the
