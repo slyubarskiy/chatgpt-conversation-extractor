@@ -4,7 +4,7 @@ Extracts and processes ChatGPT conversation exports into clean, readable markdow
 
 ## Features
 
-- Processes ChatGPT `conversations.json` export files
+- Processes single-file and sharded ChatGPT exports, including manifest-based bundles
 - Converts complex conversation graphs to linear transcripts
 - Filters out most system messages (keeps at most one user-system prompt) and hidden/tool messages, except when they contain meaningful content.
 - Preserves code blocks, citations, and file references
@@ -30,7 +30,7 @@ feature.
 1. Log in to [ChatGPT](https://chat.openai.com)
 2. Go to Settings → Data controls → Export data
 3. Click "Export" and wait for the email (usually within 24 hours)
-4. Download and extract `conversations.json` from the ZIP file
+4. Download and extract the ZIP file. Keep `export_manifest.json` and all conversation shards together when present. For a Privacy Portal export containing nested ZIPs, extract the conversations ZIP first.
 
 ## Quick Start
 
@@ -44,6 +44,12 @@ pip install -e .                  # installs the chatgpt_extractor package + PyY
 
 # Default: extract to Markdown
 python -m chatgpt_extractor data/raw/conversations.json data/output
+
+# Sharded export: pass the extracted export directory
+python -m chatgpt_extractor /path/to/export/ data/output
+
+# Preview the discovered files without creating output or logs
+python -m chatgpt_extractor /path/to/export/ --list-inputs
 
 # JSON only
 python -m chatgpt_extractor --output-format json
@@ -80,6 +86,32 @@ python -m chatgpt_extractor --analyze-failures
 python -m chatgpt_extractor --debug
 
 ```
+
+### Input discovery
+
+Both `python extract.py` and `python -m chatgpt_extractor` accept an explicit JSON
+file, `export_manifest.json`, or an extracted export directory. Directory input
+uses the following precedence:
+
+1. A version-1 `export_manifest.json`: read the files declared for the logical
+   `conversations.json`, in manifest order. Missing files, invalid manifests,
+   and paths outside the export directory are errors; no silent fallback.
+2. `conversations.json`, when no manifest is present.
+3. `conversations-*.json` with numeric suffixes, in numeric order.
+
+The extracted `User Online Activity/` subdirectory is also recognized. Other
+JSON files, such as Library metadata, are not included. ZIP archives must be
+extracted beforehand.
+
+An explicit JSON file remains single-file input, even when sibling shards or a
+manifest exist. Selecting one numbered shard warns when sibling shards exist;
+pass the directory to process the complete export.
+
+All discovered files share one progress total, output directory, schema report,
+and failure report. `--json-format single` consolidates all shards into one
+JSON export. Inputs are validated and counted before conversations are written;
+multi-file inputs are read twice, retaining one shard's raw JSON at a time.
+Consolidated JSON output still collects the converted conversations in memory.
 
 ## Output Structure
 
