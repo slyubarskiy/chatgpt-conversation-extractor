@@ -92,7 +92,9 @@ WEB_URLS_LEVELS = ("off", "minimal", "rich")
 WEB_URLS_URL_ONLY_TYPES = frozenset({"conv_safe_urls", "msg_safe_urls"})
 
 # Rich-capable types — support the full off|minimal|rich range.
-WEB_URLS_RICH_CAPABLE_TYPES = frozenset({"citations", "search_result_groups", "content_references"})
+WEB_URLS_RICH_CAPABLE_TYPES = frozenset(
+    {"citations", "search_result_groups", "content_references"}
+)
 
 # Complete set of valid top-level web_urls keys.
 WEB_URLS_KEYS = WEB_URLS_URL_ONLY_TYPES | WEB_URLS_RICH_CAPABLE_TYPES
@@ -155,7 +157,9 @@ def _find_config_path(explicit_path: Optional[str] = None) -> Optional[Path]:
     return None
 
 
-def _merge_config_over_defaults(defaults: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_config_over_defaults(
+    defaults: Dict[str, Any], incoming: Dict[str, Any]
+) -> Dict[str, Any]:
     """Merge ``incoming`` YAML values onto a copy of ``defaults``.
 
     For flat keys (``per_turn_timestamps``, ``gpt_metadata``,
@@ -187,7 +191,9 @@ def _merge_config_over_defaults(defaults: Dict[str, Any], incoming: Dict[str, An
     return merged
 
 
-def _resolve_web_urls(raw: Any, *, log: Optional[logging.Logger] = None) -> Dict[str, str]:
+def _resolve_web_urls(
+    raw: Any, *, log: Optional[logging.Logger] = None
+) -> Dict[str, str]:
     """Coerce a raw ``web_urls`` value into a normalized per-type map.
 
     Accepts:

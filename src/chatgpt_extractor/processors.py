@@ -72,7 +72,11 @@ class MessageProcessor:
             return True
 
         # Filter empty assistant placeholder messages
-        if author.get("role") == "assistant" and content_type == "text" and content.get("parts") == [""]:
+        if (
+            author.get("role") == "assistant"
+            and content_type == "text"
+            and content.get("parts") == [""]
+        ):
             return True
 
         return False
@@ -85,7 +89,9 @@ class MessageProcessor:
                     if part.get("content_type") == "image_asset_pointer":
                         metadata = part.get("metadata")
                         # Fixed NoneType bug: Must check metadata exists before 'in' operator
-                        if metadata and ("dalle" in metadata or "dalle_prompt" in metadata):
+                        if metadata and (
+                            "dalle" in metadata or "dalle_prompt" in metadata
+                        ):
                             return True
         return False
 
@@ -101,7 +107,9 @@ class MessageProcessor:
 
         return False
 
-    def extract_message_content(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
+    def extract_message_content(
+        self, msg: Dict[str, Any], conv_id: str
+    ) -> Optional[str]:
         """Extract text content from message based on content_type.
 
         Args:
@@ -618,7 +626,9 @@ class MessageProcessor:
                 [
                     (key, val)
                     for key, val in parse_qsl(parts.query, keep_blank_values=True)
-                    if not (key.lower() == "utm_source" and val.lower() == "chatgpt.com")
+                    if not (
+                        key.lower() == "utm_source" and val.lower() == "chatgpt.com"
+                    )
                 ],
                 doseq=True,
             )

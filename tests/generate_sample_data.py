@@ -59,7 +59,9 @@ def generate_conversation(index: int, complexity: str = "simple") -> dict:
                 },
             },
             "current_node": "node-3",
-            "default_model_slug": random.choice(["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]),
+            "default_model_slug": random.choice(
+                ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]
+            ),
         }
 
     elif complexity == "complex":
@@ -100,7 +102,9 @@ def generate_conversation(index: int, complexity: str = "simple") -> dict:
             if content_type == "text":
                 content = {
                     "content_type": "text",
-                    "parts": [f"Message {i}: {random.choice(['Explain', 'Show me', 'How does', 'What is'])} something"],
+                    "parts": [
+                        f"Message {i}: {random.choice(['Explain', 'Show me', 'How does', 'What is'])} something"
+                    ],
                 }
             elif content_type == "code":
                 content = {
@@ -170,7 +174,9 @@ def generate_conversation(index: int, complexity: str = "simple") -> dict:
             "update_time": base_time + index * 7200 + 3600,
             "mapping": nodes,
             "current_node": f"node-7",
-            "conversation_template_id": (f"g-p-project-{index % 3}" if index % 3 == 0 else None),
+            "conversation_template_id": (
+                f"g-p-project-{index % 3}" if index % 3 == 0 else None
+            ),
             "default_model_slug": "gpt-4",
             "safe_urls": [f"https://safe{index}.com"],
             "moderation_results": [],
@@ -193,7 +199,9 @@ def main():
         default="simple",
         help="Conversation complexity",
     )
-    parser.add_argument("--output", default="sample_conversations.json", help="Output filename")
+    parser.add_argument(
+        "--output", default="sample_conversations.json", help="Output filename"
+    )
 
     args = parser.parse_args()
 

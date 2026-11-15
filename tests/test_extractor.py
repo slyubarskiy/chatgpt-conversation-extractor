@@ -19,8 +19,12 @@ from tests.test_helpers import capture_logs, assert_in_logs
 class TestConversationExtractorV2:
     """Test suite for ConversationExtractorV2."""
 
-    @pytest.mark.parametrize("branch_options, expected_links", [({}, False), ({"branch_links": True}, True)])
-    def test_legacy_positional_constructor(self, tmp_path, _isolated_config_env, branch_options, expected_links):
+    @pytest.mark.parametrize(
+        "branch_options, expected_links", [({}, False), ({"branch_links": True}, True)]
+    )
+    def test_legacy_positional_constructor(
+        self, tmp_path, _isolated_config_env, branch_options, expected_links
+    ):
         """New options must not shift the sidecar, URL preset, or config path."""
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
@@ -31,7 +35,8 @@ class TestConversationExtractorV2:
         markdown_dir = tmp_path / "markdown"
         json_dir = tmp_path / "json"
         with patch(
-            "chatgpt_extractor.gpt_metadata.load_gpt_names_xlsx", return_value={"g-test": "Test GPT"}
+            "chatgpt_extractor.gpt_metadata.load_gpt_names_xlsx",
+            return_value={"g-test": "Test GPT"},
         ) as load_names:
             extractor = ConversationExtractorV2(
                 None,
@@ -132,8 +137,12 @@ class TestConversationExtractorV2:
         assert "updated" in metadata
         assert metadata["chat_url"] == "https://chatgpt.com/c/test-conv-001"
 
-    @pytest.mark.parametrize("tz_name", ["UTC", "Europe/London", "US/Pacific", "Asia/Kolkata"])
-    def test_extract_metadata_timestamps_are_true_utc(self, temp_dirs, sample_data, monkeypatch, tz_name):
+    @pytest.mark.parametrize(
+        "tz_name", ["UTC", "Europe/London", "US/Pacific", "Asia/Kolkata"]
+    )
+    def test_extract_metadata_timestamps_are_true_utc(
+        self, temp_dirs, sample_data, monkeypatch, tz_name
+    ):
         """Frontmatter ``created`` / ``updated`` are true UTC regardless of
         host timezone. Regression guard against a prior bug that emitted
         ``datetime.fromtimestamp(t).isoformat() + "Z"`` — naive local
@@ -147,7 +156,9 @@ class TestConversationExtractorV2:
 
         # tzset() is POSIX-only; skip cleanly on Windows CI runners.
         if not hasattr(_time_mod, "tzset"):
-            pytest.skip("time.tzset() not available (Windows) — TZ envvar has no effect")
+            pytest.skip(
+                "time.tzset() not available (Windows) — TZ envvar has no effect"
+            )
         monkeypatch.setenv("TZ", tz_name)
         _time_mod.tzset()
 
@@ -166,8 +177,12 @@ class TestConversationExtractorV2:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
         metadata = extractor.extract_metadata(conv)
 
-        assert metadata["created"] == "2024-01-01T00:00:00Z", f"created was {metadata['created']!r} under TZ={tz_name}"
-        assert metadata["updated"] == "2024-01-02T00:00:00Z", f"updated was {metadata['updated']!r} under TZ={tz_name}"
+        assert (
+            metadata["created"] == "2024-01-01T00:00:00Z"
+        ), f"created was {metadata['created']!r} under TZ={tz_name}"
+        assert (
+            metadata["updated"] == "2024-01-02T00:00:00Z"
+        ), f"updated was {metadata['updated']!r} under TZ={tz_name}"
 
     def test_backward_traverse(self, temp_dirs, sample_data):
         """Test backward traversal of conversation graph."""
@@ -179,7 +194,9 @@ class TestConversationExtractorV2:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
 
         conv = sample_data[0]
-        messages = extractor.backward_traverse(conv["mapping"], conv["current_node"], conv["id"])
+        messages = extractor.backward_traverse(
+            conv["mapping"], conv["current_node"], conv["id"]
+        )
 
         # Should have 3 messages (system, user, assistant)
         assert len(messages) == 3
@@ -238,7 +255,9 @@ class TestConversationExtractorV2:
         extractor = ConversationExtractorV2(str(input_file), str(output_dir))
 
         conv = sample_data[0]
-        raw_messages = extractor.backward_traverse(conv["mapping"], conv["current_node"], conv["id"])
+        raw_messages = extractor.backward_traverse(
+            conv["mapping"], conv["current_node"], conv["id"]
+        )
 
         processed = extractor.process_messages(raw_messages, conv["id"], conv)
 
@@ -410,7 +429,9 @@ class TestConversationExtractorV2:
         with open(input_file, "w") as f:
             json.dump(sample_data, f)
 
-        with capture_logs("chatgpt_extractor.chatgpt_extractor.extractor") as log_capture:
+        with capture_logs(
+            "chatgpt_extractor.chatgpt_extractor.extractor"
+        ) as log_capture:
             extractor = ConversationExtractorV2(str(input_file), str(output_dir))
             extractor.extract_all()
 
@@ -421,7 +442,11 @@ class TestConversationExtractorV2:
             # Check for project folder in md/ subdirectory
             md_dir = output_dir / "md"
             if md_dir.exists():
-                project_dirs = [d for d in md_dir.iterdir() if d.is_dir() and d.name.startswith("g-p-")]
+                project_dirs = [
+                    d
+                    for d in md_dir.iterdir()
+                    if d.is_dir() and d.name.startswith("g-p-")
+                ]
                 assert len(project_dirs) == 1  # One project folder
 
             # Check schema evolution log
@@ -479,7 +504,10 @@ class TestBranchParentLinks:
             },
         ]
         md = ex.generate_markdown(self._meta(), messages)
-        assert "**Branched from:** [Parent Title]" "(https://chatgpt.com/c/parent-9) `parent-9`" in md
+        assert (
+            "**Branched from:** [Parent Title]"
+            "(https://chatgpt.com/c/parent-9) `parent-9`" in md
+        )
 
     def test_non_carrier_messages_get_no_footer(self, temp_dirs):
         """Only the message that actually carries the marker is annotated."""
@@ -580,7 +608,11 @@ class TestBranchParentLinks:
                 "branched_from": {"id": "p3", "title": "P3"},
             }
         ]
-        on = self._extractor(temp_dirs, branch_links=True).generate_markdown(self._meta(), messages)
-        off = self._extractor(temp_dirs, branch_links=False).generate_markdown(self._meta(), messages)
+        on = self._extractor(temp_dirs, branch_links=True).generate_markdown(
+            self._meta(), messages
+        )
+        off = self._extractor(temp_dirs, branch_links=False).generate_markdown(
+            self._meta(), messages
+        )
         assert "**Branched from:**" in on
         assert "**Branched from:**" not in off

@@ -212,7 +212,9 @@ class TestMessageProcessor:
                             {"url": "https://search.example.com/result-1"},
                             {
                                 "url": "https://search.example.com/result-2",
-                                "supporting_websites": [{"url": "https://search.example.com/supporting"}],
+                                "supporting_websites": [
+                                    {"url": "https://search.example.com/supporting"}
+                                ],
                             },
                         ]
                     }
@@ -235,7 +237,9 @@ class TestMessageProcessor:
                         "sources": [
                             {
                                 "url": "https://refs.example.com/source",
-                                "supporting_websites": [{"url": "https://refs.example.com/supporting"}],
+                                "supporting_websites": [
+                                    {"url": "https://refs.example.com/supporting"}
+                                ],
                             }
                         ],
                     }
@@ -252,7 +256,15 @@ class TestMessageProcessor:
         msg = {
             "content": {"content_type": "text"},
             "metadata": {
-                "citations": [{"metadata": {"url": ("https://example.com/article" "?utm_source=chatgpt.com")}}],
+                "citations": [
+                    {
+                        "metadata": {
+                            "url": (
+                                "https://example.com/article" "?utm_source=chatgpt.com"
+                            )
+                        }
+                    }
+                ],
                 "content_references": [
                     {
                         "sources": [
@@ -271,7 +283,9 @@ class TestMessageProcessor:
         msg = {
             "content": {
                 "content_type": "text",
-                "parts": ["See https://example.com/article" "#:~:text=Highlighted%20words"],
+                "parts": [
+                    "See https://example.com/article" "#:~:text=Highlighted%20words"
+                ],
             },
             "metadata": {
                 "safe_urls": [
@@ -288,7 +302,9 @@ class TestMessageProcessor:
     def test_extract_file_names_from_attachments(self, processor):
         """Test file name extraction from attachments."""
         msg = {
-            "metadata": {"attachments": [{"name": "document.pdf"}, {"name": "image.png"}]},
+            "metadata": {
+                "attachments": [{"name": "document.pdf"}, {"name": "image.png"}]
+            },
             "content": {},
         }
         files = processor.extract_file_names(msg)
@@ -321,7 +337,10 @@ class TestMessageProcessor:
         result = processor.extract_message_content(msg, "test-id")
         assert "I am a developer" in result
         assert "Be concise" in result
-        assert "The user provided" not in result or len(result) < len(msg["content"]["text"]) * 0.9
+        assert (
+            "The user provided" not in result
+            or len(result) < len(msg["content"]["text"]) * 0.9
+        )
 
 
 class TestNormalizeWebUrlMalformedInput:
@@ -368,7 +387,10 @@ class TestNormalizeWebUrlMalformedInput:
 
     def test_valid_url_normalization_unaffected(self):
         """Existing utm_source stripping behaviour is unchanged."""
-        assert self._norm("https://example.com/a?utm_source=chatgpt.com") == "https://example.com/a"
+        assert (
+            self._norm("https://example.com/a?utm_source=chatgpt.com")
+            == "https://example.com/a"
+        )
 
 
 class TestUrlBalancedDelimiterTrimming:
@@ -443,7 +465,9 @@ class TestUrlBalancedDelimiterTrimming:
     def test_wikipedia_link_in_markdown_keeps_its_parens(self):
         """The hard case: markdown markup AND legitimate parens together."""
         text = "[Python](https://en.wikipedia.org/wiki/Python_(programming_language))"
-        assert self._extract(text) == ["https://en.wikipedia.org/wiki/Python_(programming_language)"]
+        assert self._extract(text) == [
+            "https://en.wikipedia.org/wiki/Python_(programming_language)"
+        ]
 
     def test_scheme_only_capture_is_dropped(self):
         """A capture trimming down to a bare scheme carries no host."""

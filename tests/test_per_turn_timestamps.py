@@ -67,7 +67,9 @@ def test_load_config_malformed_yaml_silently_falls_back(tmp_path, _isolated_conf
     assert cfg == config_mod.DEFAULTS
 
 
-def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(tmp_path, _isolated_config_env):
+def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(
+    tmp_path, _isolated_config_env
+):
     cfg = config_mod.load_config(str(tmp_path / "does_not_exist.yaml"))
     assert cfg == config_mod.DEFAULTS
 
@@ -101,7 +103,9 @@ def _metadata():
     }
 
 
-def test_extractor_emits_per_turn_timestamps_by_default(_extractor_args, _isolated_config_env):
+def test_extractor_emits_per_turn_timestamps_by_default(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(**_extractor_args)
     md = ext.generate_markdown(_metadata(), _msgs_with_timestamps())
     # Italic ISO line appears beneath each role heading.
@@ -115,7 +119,9 @@ def test_extractor_emits_per_turn_timestamps_by_default(_extractor_args, _isolat
     assert user_idx < italic_idx < content_idx
 
 
-def test_extractor_no_per_turn_timestamps_matches_legacy(_extractor_args, _isolated_config_env):
+def test_extractor_no_per_turn_timestamps_matches_legacy(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(per_turn_timestamps=False, **_extractor_args)
     md = ext.generate_markdown(_metadata(), _msgs_with_timestamps())
     # Headings present; no italic timestamps anywhere.
@@ -124,7 +130,9 @@ def test_extractor_no_per_turn_timestamps_matches_legacy(_extractor_args, _isola
     assert "*2024-05-25T" not in md
 
 
-def test_extractor_constructor_arg_overrides_config_file(tmp_path, _extractor_args, _isolated_config_env):
+def test_extractor_constructor_arg_overrides_config_file(
+    tmp_path, _extractor_args, _isolated_config_env
+):
     cfg_file = tmp_path / "off.yaml"
     cfg_file.write_text("per_turn_timestamps: false\n", encoding="utf-8")
     # Config says False, explicit constructor arg says True → True wins.
@@ -137,7 +145,9 @@ def test_extractor_constructor_arg_overrides_config_file(tmp_path, _extractor_ar
     assert "*2024-05-25T12:00:00Z*" in md
 
 
-def test_extractor_config_file_used_when_constructor_arg_is_none(tmp_path, _extractor_args, _isolated_config_env):
+def test_extractor_config_file_used_when_constructor_arg_is_none(
+    tmp_path, _extractor_args, _isolated_config_env
+):
     cfg_file = tmp_path / "off.yaml"
     cfg_file.write_text("per_turn_timestamps: false\n", encoding="utf-8")
     ext = ConversationExtractorV2(
@@ -149,7 +159,9 @@ def test_extractor_config_file_used_when_constructor_arg_is_none(tmp_path, _extr
     assert "*2024-05-25T" not in md
 
 
-def test_extractor_skips_timestamp_on_system_message(_extractor_args, _isolated_config_env):
+def test_extractor_skips_timestamp_on_system_message(
+    _extractor_args, _isolated_config_env
+):
     """System prompt's "send time" is the custom-instructions configuration
     moment, not a chat moment; per-turn timestamps don't apply."""
     ext = ConversationExtractorV2(**_extractor_args)
@@ -179,8 +191,12 @@ def test_json_output_timestamp_uses_create_time(_extractor_args, _isolated_confi
     assert msgs[1]["timestamp"].startswith("2024-05-25T12:01:00")
 
 
-def test_json_output_timestamp_null_when_disabled(_extractor_args, _isolated_config_env):
-    ext = ConversationExtractorV2(output_format="json", per_turn_timestamps=False, **_extractor_args)
+def test_json_output_timestamp_null_when_disabled(
+    _extractor_args, _isolated_config_env
+):
+    ext = ConversationExtractorV2(
+        output_format="json", per_turn_timestamps=False, **_extractor_args
+    )
     data = ext.generate_json_data(_metadata(), _msgs_with_timestamps())
     msgs = data["messages"]
     assert msgs[0]["timestamp"] is None
@@ -258,7 +274,9 @@ def test_process_messages_propagates_create_time(_extractor_args, _isolated_conf
     assert asst_msgs[0].get("create_time") == 1716638460.0
 
 
-def test_merge_continuations_uses_first_segments_create_time(_extractor_args, _isolated_config_env):
+def test_merge_continuations_uses_first_segments_create_time(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(**_extractor_args)
     msgs = [
         {"role": "user", "content": "Q", "create_time": 1716638400.0},
@@ -305,7 +323,9 @@ def test_merge_continuations_records_the_latest_segment_time(
     assert assistant["last_segment_time"] == expected
 
 
-def test_merge_continuations_omits_last_segment_time_without_any_time(_extractor_args, _isolated_config_env):
+def test_merge_continuations_omits_last_segment_time_without_any_time(
+    _extractor_args, _isolated_config_env
+):
     ext = ConversationExtractorV2(**_extractor_args)
     msgs = [
         {"role": "user", "content": "Q"},
@@ -315,7 +335,9 @@ def test_merge_continuations_omits_last_segment_time_without_any_time(_extractor
     assert "last_segment_time" not in ext.merge_continuations(msgs)[-1]
 
 
-def test_last_segment_time_does_not_change_rendered_output(_extractor_args, _isolated_config_env):
+def test_last_segment_time_does_not_change_rendered_output(
+    _extractor_args, _isolated_config_env
+):
     """The new key is bookkeeping only: markdown and JSON stay byte-identical.
 
     Downstream vault diffs compare notes byte for byte, so a key that leaked
@@ -329,8 +351,12 @@ def test_last_segment_time_does_not_change_rendered_output(_extractor_args, _iso
             {"role": "assistant", "content": "A2", "create_time": 1716638480.0},
         ]
     )
-    stripped = [{k: v for k, v in m.items() if k != "last_segment_time"} for m in merged]
-    assert ext.generate_markdown(_metadata(), merged) == ext.generate_markdown(_metadata(), stripped)
+    stripped = [
+        {k: v for k, v in m.items() if k != "last_segment_time"} for m in merged
+    ]
+    assert ext.generate_markdown(_metadata(), merged) == ext.generate_markdown(
+        _metadata(), stripped
+    )
     assert json.dumps(ext.generate_json_data(_metadata(), merged)) == json.dumps(
         ext.generate_json_data(_metadata(), stripped)
     )

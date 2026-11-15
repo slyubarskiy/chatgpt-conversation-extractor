@@ -100,7 +100,9 @@ class TestJSONOutput:
         input_file.write_text(json.dumps(conversations))
 
         # Test single JSON file output
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path), output_format="json", json_format="single")
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path), output_format="json", json_format="single"
+        )
         extractor.extract_all()
 
         # Find the consolidated JSON file
@@ -255,8 +257,13 @@ class TestJSONOutput:
         assert data["model"] == "gpt-4"
         # Custom instructions should be extracted from user_context_message_data
         assert "custom_instructions" in data
-        assert data["custom_instructions"]["about_user_message"] == "User is a developer"
-        assert data["custom_instructions"]["about_model_message"] == "Be helpful and concise"
+        assert (
+            data["custom_instructions"]["about_user_message"] == "User is a developer"
+        )
+        assert (
+            data["custom_instructions"]["about_model_message"]
+            == "Be helpful and concise"
+        )
 
 
 class TestDirectoryStructure:
@@ -273,12 +280,16 @@ class TestDirectoryStructure:
         assert not (tmp_path / "output1" / "json").exists()
 
         # Test JSON only
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path / "output2"), output_format="json")
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path / "output2"), output_format="json"
+        )
         assert not (tmp_path / "output2" / "md").exists()
         assert (tmp_path / "output2" / "json").exists()
 
         # Test both
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path / "output3"), output_format="both")
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path / "output3"), output_format="both"
+        )
         assert (tmp_path / "output3" / "md").exists()
         assert (tmp_path / "output3" / "json").exists()
 
@@ -289,7 +300,9 @@ class TestDirectoryStructure:
 
         # Test markdown override
         custom_md = tmp_path / "custom_markdown"
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path / "output"), markdown_dir=str(custom_md))
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path / "output"), markdown_dir=str(custom_md)
+        )
         assert custom_md.exists()
         assert not (tmp_path / "output" / "md").exists()
 
@@ -312,7 +325,9 @@ class TestDirectoryStructure:
         # Mock permission error
         with patch("pathlib.Path.mkdir", side_effect=PermissionError("No permission")):
             with pytest.raises(PermissionError):
-                extractor = ConversationExtractorV2(str(input_file), str(tmp_path / "output"))
+                extractor = ConversationExtractorV2(
+                    str(input_file), str(tmp_path / "output")
+                )
 
 
 class TestTimestampSynchronization:
@@ -366,7 +381,9 @@ class TestTimestampSynchronization:
         input_file = tmp_path / "test.json"
         input_file.write_text(json.dumps(conversations))
 
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path), preserve_timestamps=True)
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path), preserve_timestamps=True
+        )
         extractor.extract_all()
 
         # Check file was created
@@ -406,7 +423,9 @@ class TestTimestampSynchronization:
         input_file = tmp_path / "test.json"
         input_file.write_text(json.dumps(conversations))
 
-        extractor = ConversationExtractorV2(str(input_file), str(tmp_path), preserve_timestamps=False)
+        extractor = ConversationExtractorV2(
+            str(input_file), str(tmp_path), preserve_timestamps=False
+        )
         extractor.extract_all()
 
         md_file = tmp_path / "md" / "No Timestamp.md"

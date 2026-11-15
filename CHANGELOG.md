@@ -97,8 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all existing positional arguments through `config_path`. Regression
   coverage checks the original argument order and config precedence.
 - Black formatting is now enforced in CI and `make lint` rather than
-  advisory. This fork retains `line-length = 120` and checks `src`,
-  `tests`, and `extract.py` without the removed `setup.py`.
+  advisory. This fork adopts upstream's `line-length = 88` to reduce
+  formatting differences and future merge conflicts. Black and Ruff use
+  the same width; checks cover `src`, `tests`, and `extract.py` without
+  the removed `setup.py`.
   The Black requirement is pinned to the 25.x stable-style series:
   `line-length` fixes the width but not the style, and Black changes
   its stable style at calendar-year releases. Contributors should run

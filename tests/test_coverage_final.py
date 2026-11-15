@@ -21,7 +21,9 @@ class TestCoverageFinal:
 
     def test_extractor_print_summary(self, capsys):
         """Test print_summary method."""
-        with capture_logs("chatgpt_extractor.chatgpt_extractor.extractor") as log_capture:
+        with capture_logs(
+            "chatgpt_extractor.chatgpt_extractor.extractor"
+        ) as log_capture:
             extractor = ConversationExtractorV2("dummy.json", "output")
 
             # Create a mock progress tracker
@@ -78,7 +80,9 @@ class TestCoverageFinal:
         from chatgpt_extractor import __main__ as main_module
 
         # Create test data
-        conversations = [{"id": "test", "title": "Test", "mapping": {}, "current_node": "n1"}]
+        conversations = [
+            {"id": "test", "title": "Test", "mapping": {}, "current_node": "n1"}
+        ]
         input_file = tmp_path / "test.json"
         input_file.write_text(json.dumps(conversations))
 
@@ -237,7 +241,9 @@ class TestCoverageFinal:
                 {"title": "Source 1", "url": "https://source1.com"},
                 {"title": "Source 2"},  # No URL
             ],
-            "_cite_metadata": {"metadata_list": [{"title": "Meta Source", "url": "https://meta.com"}]},
+            "_cite_metadata": {
+                "metadata_list": [{"title": "Meta Source", "url": "https://meta.com"}]
+            },
         }
 
         citations = processor.extract_citations(metadata)

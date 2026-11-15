@@ -77,7 +77,7 @@ This tool was created to solve a personal need for extracting ChatGPT conversati
 
 **Formatting is enforced**
 - The project is formatted with [Black](https://black.readthedocs.io/) at a line
-  length of 120, configured in `pyproject.toml`.
+  length of 88, matching upstream and configured in `pyproject.toml`.
 - Run `uv run black --fast --workers 1 src tests extract.py` before pushing.
   CI and `make lint` fail if the tree is not formatted.
 - Run `make sync` from the repository root to install the declared development
@@ -86,8 +86,9 @@ This tool was created to solve a personal need for extracting ChatGPT conversati
   formatting, so version bumps go in their own PR together with the resulting
   reformat.
 - Upstream's formatting-only commit #21 is recorded in `.git-blame-ignore-revs`.
-  This fork retains its 120-column style. To keep `git blame` readable
-  locally, run once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+  This fork follows upstream's Black style to reduce future merge conflicts.
+  To keep `git blame` readable locally, run once:
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs`
   (GitHub applies this automatically).
 
 **Follow Existing Patterns**

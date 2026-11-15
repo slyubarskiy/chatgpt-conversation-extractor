@@ -191,7 +191,9 @@ def test_load_config_web_urls_preset_string(tmp_path, _isolated_config_env):
     assert cfg["web_urls"] == "rich"
 
 
-def test_load_config_web_urls_partial_dict_preserves_siblings(tmp_path, _isolated_config_env):
+def test_load_config_web_urls_partial_dict_preserves_siblings(
+    tmp_path, _isolated_config_env
+):
     """Partial ``web_urls`` dict in YAML merges over defaults; unspecified
     sibling keys survive. Uses quoted ``"off"`` because YAML 1.1 would
     coerce bare ``off`` to bool False (see the bool-False→"off" coercion
@@ -208,7 +210,9 @@ def test_load_config_web_urls_partial_dict_preserves_siblings(tmp_path, _isolate
     assert cfg["web_urls"]["conv_safe_urls"] == WEB_URLS_DEFAULT["conv_safe_urls"]
 
 
-def test_load_config_web_urls_unquoted_off_yaml11_coercion(tmp_path, _isolated_config_env):
+def test_load_config_web_urls_unquoted_off_yaml11_coercion(
+    tmp_path, _isolated_config_env
+):
     """Bare ``off`` in YAML → pyyaml's YAML 1.1 parser coerces to bool
     False. load_config preserves the raw shape; resolution at extractor
     init converts False → 'off' via ``_resolve_web_urls``."""
@@ -246,7 +250,9 @@ def _extractor_args(tmp_path):
     return {"input_file": str(input_file), "output_dir": str(tmp_path / "out")}
 
 
-def test_extractor_web_urls_none_uses_config_default(_extractor_args, _isolated_config_env):
+def test_extractor_web_urls_none_uses_config_default(
+    _extractor_args, _isolated_config_env
+):
     ex = ConversationExtractorV2(**_extractor_args)
     # No config file, no constructor override → self.web_urls is the
     # per-type default.
@@ -258,16 +264,22 @@ def test_extractor_web_urls_preset_str_resolves(_extractor_args, _isolated_confi
     assert ex.web_urls == WEB_URLS_PRESETS["rich"]
 
 
-def test_extractor_web_urls_dict_merges_over_defaults(_extractor_args, _isolated_config_env):
+def test_extractor_web_urls_dict_merges_over_defaults(
+    _extractor_args, _isolated_config_env
+):
     ex = ConversationExtractorV2(web_urls={"citations": "off"}, **_extractor_args)
     assert ex.web_urls["citations"] == "off"
     assert ex.web_urls["conv_safe_urls"] == WEB_URLS_DEFAULT["conv_safe_urls"]
 
 
-def test_extractor_constructor_arg_wins_over_config_file(tmp_path, _extractor_args, _isolated_config_env):
+def test_extractor_constructor_arg_wins_over_config_file(
+    tmp_path, _extractor_args, _isolated_config_env
+):
     cfg_file = tmp_path / "cfg.yaml"
     cfg_file.write_text("web_urls: off\n", encoding="utf-8")
-    ex = ConversationExtractorV2(web_urls="rich", config_path=str(cfg_file), **_extractor_args)
+    ex = ConversationExtractorV2(
+        web_urls="rich", config_path=str(cfg_file), **_extractor_args
+    )
     assert ex.web_urls == WEB_URLS_PRESETS["rich"]
 
 

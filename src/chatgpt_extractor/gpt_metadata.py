@@ -386,7 +386,11 @@ def format_per_turn_suffix(
     # skipping those keeps the per-turn line about actual Custom GPT
     # @mentions only. Real @mentions carry a Custom GPT id (g-XXXX) and
     # are still emitted.
-    if msg_gizmo and msg_gizmo != conv_default_gizmo_id and not msg_gizmo.startswith("g-p-"):
+    if (
+        msg_gizmo
+        and msg_gizmo != conv_default_gizmo_id
+        and not msg_gizmo.startswith("g-p-")
+    ):
         # Substitute the human-readable name when available; fall back to
         # the raw id so the @mention signal is preserved even when the
         # sidecar hasn't been populated yet.
@@ -452,7 +456,8 @@ def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]:
         wb.close()
     except Exception as exc:  # noqa: BLE001 — sidecar must never break extractor
         logger.warning(
-            "GPT_Names.xlsx at %s could not be read (%s); proceeding without " "name resolution",
+            "GPT_Names.xlsx at %s could not be read (%s); proceeding without "
+            "name resolution",
             p,
             exc,
         )

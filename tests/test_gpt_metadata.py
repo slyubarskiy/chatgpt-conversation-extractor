@@ -29,7 +29,9 @@ from chatgpt_extractor.gpt_metadata import (
 # --------------------------------------------------------------------------- #
 
 
-def _msg_node(msg_id: str, role: str, slug: str | None = None, gizmo: str | None = None) -> dict:
+def _msg_node(
+    msg_id: str, role: str, slug: str | None = None, gizmo: str | None = None
+) -> dict:
     """Build a mapping node mimicking the export shape."""
     msg = {"author": {"role": role}}
     meta: dict = {}
@@ -483,7 +485,9 @@ def test_format_per_turn_suffix_gpt_id_emitted_on_mismatch_atmention():
 def test_format_per_turn_suffix_empty():
     """Nothing per-turn-specific → empty string so caller emits just timestamp."""
     assert format_per_turn_suffix({}, conv_default_gizmo_id=None) == ""
-    assert format_per_turn_suffix({"model_slug": None}, conv_default_gizmo_id=None) == ""
+    assert (
+        format_per_turn_suffix({"model_slug": None}, conv_default_gizmo_id=None) == ""
+    )
 
 
 def test_format_per_turn_suffix_only_plugin():
@@ -599,7 +603,9 @@ def _extractor(tmp_path, **kw):
     )
 
 
-def test_integration_custom_gpt_frontmatter_contains_new_fields(tmp_path, custom_gpt_conv_fixture):
+def test_integration_custom_gpt_frontmatter_contains_new_fields(
+    tmp_path, custom_gpt_conv_fixture
+):
     ex = _extractor(tmp_path)
     out = ex.process_conversation(custom_gpt_conv_fixture)
     assert out is not None
@@ -611,7 +617,9 @@ def test_integration_custom_gpt_frontmatter_contains_new_fields(tmp_path, custom
     assert metadata["model"] == "text-davinci-002-render-sha"
 
 
-def test_integration_per_turn_line_includes_model_and_plugin(tmp_path, custom_gpt_conv_fixture):
+def test_integration_per_turn_line_includes_model_and_plugin(
+    tmp_path, custom_gpt_conv_fixture
+):
     ex = _extractor(tmp_path)
     out = ex.process_conversation(custom_gpt_conv_fixture)
     assert out is not None
@@ -625,7 +633,9 @@ def test_integration_per_turn_line_includes_model_and_plugin(tmp_path, custom_gp
     assert "gpt:g-uefFoRnpX" not in md
 
 
-def test_integration_no_gpt_metadata_flag_produces_legacy_output(tmp_path, custom_gpt_conv_fixture):
+def test_integration_no_gpt_metadata_flag_produces_legacy_output(
+    tmp_path, custom_gpt_conv_fixture
+):
     """--no-gpt-metadata: frontmatter has no new fields; per-turn line is
     just the bare timestamp (legacy)."""
     ex = _extractor(tmp_path, gpt_metadata=False)
@@ -642,7 +652,9 @@ def test_integration_no_gpt_metadata_flag_produces_legacy_output(tmp_path, custo
     assert "*2024-" in md
 
 
-def test_integration_json_carries_per_turn_gpt_fields(tmp_path, custom_gpt_conv_fixture):
+def test_integration_json_carries_per_turn_gpt_fields(
+    tmp_path, custom_gpt_conv_fixture
+):
     """JSON output mirrors the frontmatter additions + per-msg signals."""
     ex = _extractor(tmp_path)
     out = ex.process_conversation(custom_gpt_conv_fixture)
@@ -1148,7 +1160,9 @@ def test_load_gpt_names_xlsx_corrupt_file_does_not_crash(tmp_path, caplog):
     assert any("could not be read" in rec.message for rec in caplog.records)
 
 
-def test_extract_metadata_resolves_gpt_name_from_xlsx(tmp_path, custom_gpt_conv_fixture):
+def test_extract_metadata_resolves_gpt_name_from_xlsx(
+    tmp_path, custom_gpt_conv_fixture
+):
     """Integration: extractor with gpt_names_xlsx populates metadata['gpt_name']."""
     xlsx = tmp_path / "GPT_Names.xlsx"
     _write_gpt_names_xlsx(xlsx, [("g-uefFoRnpX", "Summarizer 2", "")])
@@ -1158,7 +1172,9 @@ def test_extract_metadata_resolves_gpt_name_from_xlsx(tmp_path, custom_gpt_conv_
     assert metadata["gpt_name"] == "Summarizer 2"
 
 
-def test_extract_metadata_no_gpt_name_when_xlsx_missing_id(tmp_path, custom_gpt_conv_fixture):
+def test_extract_metadata_no_gpt_name_when_xlsx_missing_id(
+    tmp_path, custom_gpt_conv_fixture
+):
     """When the sidecar has rows but none matches → no gpt_name field at all."""
     xlsx = tmp_path / "GPT_Names.xlsx"
     _write_gpt_names_xlsx(xlsx, [("g-otherUnrelated", "Some Other GPT", "")])
