@@ -18,6 +18,8 @@ import yaml
 from .processors import MessageProcessor
 from .trackers import SchemaEvolutionTracker, ProgressTracker
 from .logging_config import get_logger, log_exception
+from .inputs import discover_export, ConversationStream
+from .assets import AssetManager, asset_url, markdown_label
 
 # Constants for JSON output formatting
 JSON_EXPORT_FILENAME_PATTERN = "conversations_export_{timestamp}.json"
@@ -50,6 +52,8 @@ class ConversationExtractorV2:
         config_path: Optional[str] = None,
         *,
         branch_links: Optional[bool] = None,
+        asset_mode: Optional[str] = None,
+        inline_pastes: Optional[bool] = None,
     ):
         """Initialize the extractor with multi-format configuration.
 
@@ -124,6 +128,11 @@ class ConversationExtractorV2:
                         Markdown. None reads the config (default True).
                         Keyword-only to preserve the existing positional
                         arguments through config_path.
+            asset_mode: Export assets as relative symlinks (default), copies,
+                        or disable asset handling with 'none'. Activated by
+                        extract_all(); explicit values override YAML config.
+            inline_pastes: Include large pasted text in its originating message
+                        (default True). Requires asset handling to be enabled.
         """
         self.logger = get_logger(__name__)
         if output_dir is None:
@@ -150,6 +159,8 @@ class ConversationExtractorV2:
             or branch_links is None
             or gpt_names_xlsx is None
             or web_urls is None
+            or asset_mode is None
+            or inline_pastes is None
         ):
             from .config import load_config
 
@@ -175,6 +186,17 @@ class ConversationExtractorV2:
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
         self.branch_links = branch_links
+        self.asset_mode = (
+            asset_mode if asset_mode is not None else _cfg.get("asset_mode", "symlink")
+        )
+        if self.asset_mode not in {"symlink", "copy", "none"}:
+            raise ValueError("asset_mode must be 'symlink', 'copy', or 'none'")
+        self.inline_pastes = (
+            inline_pastes
+            if inline_pastes is not None
+            else bool(_cfg.get("inline_pastes", True))
+        )
+        self.asset_manager: Optional[AssetManager] = None
         # Load the gpt_id → name map once at construct time; downstream
         # reads (extract_metadata + generate_markdown) reuse the same
         # dict. Missing / bad sidecar → empty dict, no crash.
@@ -299,8 +321,13 @@ class ConversationExtractorV2:
 
         try:
             self.logger.info(f"Loading conversations from {self.input_file}")
-            with open(self.input_file, "r", encoding="utf-8") as f:
-                conversations = json.load(f)
+            bundle = discover_export(self.input_file)
+            conversations = ConversationStream(bundle.files)
+            if self.asset_mode != "none":
+                self.asset_manager = AssetManager(
+                    bundle.root, bundle.files, self.output_dir, self.asset_mode
+                )
+                self.asset_manager.export_all()
         except FileNotFoundError:
             self.logger.critical(f"Input file not found: {self.input_file}")
             raise
@@ -342,8 +369,22 @@ class ConversationExtractorV2:
             else None
         )
 
+        seen_ids: Set[str] = set()
         for conv in conversations:
             try:
+                conv_id = (
+                    (conv.get("id") or conv.get("conversation_id"))
+                    if isinstance(conv, dict)
+                    else None
+                )
+                if isinstance(conv_id, str) and conv_id:
+                    if conv_id in seen_ids:
+                        self.logger.warning(
+                            "Skipping duplicate conversation ID %s", conv_id
+                        )
+                        progress.update(success=True)
+                        continue
+                    seen_ids.add(conv_id)
                 result = self.process_conversation(conv)
                 if result:
                     metadata, messages, json_data = result
@@ -754,8 +795,20 @@ class ConversationExtractorV2:
         system_prompt_added = False
 
         for msg in messages:
+            assets = self.asset_manager.for_message(msg) if self.asset_manager else []
             if self.message_processor.should_filter_message(msg):
-                continue
+                # A file-only assistant reply may look like an empty placeholder.
+                # Keep it only when a real exported asset supplies the content.
+                if not (
+                    assets
+                    and msg.get("author", {}).get("role") == "assistant"
+                    and msg.get("content", {}).get("content_type") == "text"
+                    and msg.get("content", {}).get("parts") == [""]
+                    and not (msg.get("metadata") or {}).get(
+                        "is_visually_hidden_from_conversation"
+                    )
+                ):
+                    continue
 
             author_role = msg.get("author", {}).get("role")
 
@@ -774,8 +827,13 @@ class ConversationExtractorV2:
 
             if author_role in ["user", "assistant"]:
                 content = self.message_processor.extract_message_content(msg, conv_id)
-                if content:  # Only add if has content after filtering
-                    msg_data = {"role": author_role, "content": content}
+                files = self.message_processor.extract_file_names(msg)
+                if assets and self.inline_pastes:
+                    content = self.asset_manager.include_pastes(content or "", assets)
+                if content or assets or files:
+                    msg_data = {"role": author_role, "content": content or ""}
+                    if assets:
+                        msg_data["assets"] = assets
 
                     # Preserve per-message create_time when present on the
                     # source. Surfaced under each role heading in markdown
@@ -831,7 +889,6 @@ class ConversationExtractorV2:
                             ),
                         }
 
-                    files = self.message_processor.extract_file_names(msg)
                     if files:
                         msg_data["files"] = files
 
@@ -850,7 +907,12 @@ class ConversationExtractorV2:
                         msg, conv_id
                     )
                     if extracted:
-                        tool_msg_data = {"role": "assistant", "content": extracted}
+                        tool_msg_data: Dict[str, Any] = {
+                            "role": "assistant",
+                            "content": extracted,
+                        }
+                        if assets:
+                            tool_msg_data["assets"] = assets
                         if (ct := msg.get("create_time")) is not None:
                             tool_msg_data["create_time"] = ct
                         from .gpt_metadata import extract_msg_gpt_signals
@@ -883,6 +945,8 @@ class ConversationExtractorV2:
                                 "role": "assistant",
                                 "content": text,
                             }
+                            if assets:
+                                dr_data["assets"] = assets
                             # Inherit per-turn signals from the
                             # report_message's own metadata (its
                             # model_slug / gizmo_id / plugin_namespace
@@ -957,6 +1021,10 @@ class ConversationExtractorV2:
                             current["web_sources"] = []
                         current["web_sources"].extend(messages[j]["web_sources"])
 
+                    for key in ("assets", "files"):
+                        if key in messages[j]:
+                            current.setdefault(key, []).extend(messages[j][key])
+
                     # Branch lineage can sit on any segment of a merged reply,
                     # not just the first. There is exactly one marker per
                     # conversation, so the first one found wins and later
@@ -1009,6 +1077,12 @@ class ConversationExtractorV2:
 
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
+                if "files" in current:
+                    merged_msg["files"] = list(dict.fromkeys(current["files"]))
+                if "assets" in current:
+                    merged_msg["assets"] = list(
+                        {(a["id"], a["path"]): a for a in current["assets"]}.values()
+                    )
                 if "web_urls" in current:
                     merged_msg["web_urls"] = sorted(list(set(current["web_urls"])))
                 if "web_sources" in current:
@@ -1056,6 +1130,9 @@ class ConversationExtractorV2:
 
         lines.append(f"# {metadata['title']}")
         lines.append("")
+        markdown_parent = self.output_paths.get("markdown_dir", self.output_dir)
+        if metadata.get("project_id"):
+            markdown_parent = markdown_parent / metadata["project_id"]
 
         for msg in messages:
             role = msg["role"]
@@ -1099,8 +1176,20 @@ class ConversationExtractorV2:
                 lines.append(f"*{self._format_per_turn_ts(ct)}{suffix}*")
 
             if role == "user" and "files" in msg:
+                linked_names = {
+                    a["name"] for a in msg.get("assets", []) if a.get("path")
+                }
                 for file in msg["files"]:
-                    lines.append(f"[File: {file}]")
+                    if file not in linked_names:
+                        lines.append(f"[File: {file}]")
+
+            for asset in msg.get("assets", []):
+                if not asset.get("path"):
+                    continue
+                url = asset_url(self.output_dir, asset["path"], markdown_parent)
+                label = markdown_label(asset["name"])
+                image = "!" if asset.get("mime_type", "").startswith("image/") else ""
+                lines.append(f"{image}[{label}]({url})")
 
             lines.append(content)
 
@@ -1373,6 +1462,8 @@ class ConversationExtractorV2:
                 json_msg["web_sources"] = web_sources
             if files := msg.get("files"):
                 json_msg["files"] = files
+            if assets := msg.get("assets"):
+                json_msg["assets"] = assets
 
             json_data["messages"].append(json_msg)
 

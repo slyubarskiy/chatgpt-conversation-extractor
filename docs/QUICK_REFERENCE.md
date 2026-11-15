@@ -7,10 +7,16 @@
 make extract-conversations-zip                    # extracts Conversations__*-chatgpt-*.zip
 make list-inputs                                  # shows conversations.json / conversations-*.json
 make extract                                      # processes all discovered conversation shards
+make extract ASSET_MODE=copy                       # self-contained named attachments
+make extract INLINE_PASTES=false                   # links only; no inline large-paste text
 
 # Basic usage (markdown only)
 uv run chatgpt-extractor                                 # uses data/raw/conversations.json -> data/output/
 uv run chatgpt-extractor input.json output_dir/          # custom paths
+uv run chatgpt-extractor /path/to/export output_dir/     # manifest or legacy directory discovery
+uv run chatgpt-extractor /path/to/export --list-inputs   # inspect discovered files only
+uv run chatgpt-extractor /path/to/export output_dir/ --asset-mode copy
+uv run chatgpt-extractor /path/to/export output_dir/ --no-inline-pastes
 
 # Output format
 uv run chatgpt-extractor --output-format json            # JSON only (multiple files by default)
@@ -51,6 +57,7 @@ Output: data/output/
         │   └── g-p-<project-id>/
         │       └── Project Conv.json
         ├── all_conversations.json       # only with --json-format single
+        ├── assets/                      # named symlinks (default) or copied files
         └── logs/
             ├── schema_evolution.log     # tracker output (if enabled)
             └── conversion_log.log       # failure details (if any)
@@ -74,6 +81,8 @@ extractor = ConversationExtractorV2(
     gpt_metadata=None,                          # None = read config (default True)
     gpt_names_xlsx=None,                        # None = read config (default None)
     config_path=None,                           # explicit YAML config path
+    asset_mode=None,                            # keyword-only; symlink | copy | none (default symlink)
+    inline_pastes=None,                         # keyword-only; default True from config
 )
 extractor.extract_all()
 ```

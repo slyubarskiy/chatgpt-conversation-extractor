@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Manifest-aware directory input with legacy single-file and numbered-shard
+  fallbacks, shared by the CLI and Makefile. All shards contribute to one
+  extraction run and consolidated JSON output. Missing manifest shards fail
+  explicitly; repeated conversation IDs are logged and skipped.
+- Named asset exports under `assets/` using relative symlinks by default,
+  optional copies or disabled handling, deterministic filename collision
+  numbering, and message-level attachment/image links. Recorded Library and
+  asset-name metadata are used without modifying the original files.
+- Full inline recovery of large pasted text in Markdown and JSON, with
+  duplicate suppression and literal code fencing. `--no-inline-pastes`
+  keeps file links without expanding their contents.
+- Rich source extraction from populated grouped-webpage/navigation `items`
+  and `fallback_items`, including URL normalization and merged source details.
 - A merged assistant reply now records when it finished as well as when
   it began: `merge_continuations` adds `last_segment_time`, the latest
   `create_time` among the merged segments, beside the first segment's

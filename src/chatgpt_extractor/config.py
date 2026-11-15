@@ -13,6 +13,13 @@ Layered configuration (later sources override earlier ones):
 
 Currently recognised keys:
 
+- ``asset_mode`` (str, default ``symlink``) — restore available attachments
+  under the output's assets/ directory using ``symlink`` or ``copy``;
+  ``none`` disables asset handling. Original export files are never modified.
+- ``inline_pastes`` (bool, default ``True``) — include attachments marked
+  ``is_big_paste`` in full within the originating message, when asset handling
+  is enabled. Explicit constructor/CLI values override YAML configuration.
+
 - ``per_turn_timestamps`` (bool, default ``True``) — emit per-message
   timestamps as italic ISO-8601 UTC lines beneath each role heading in the
   markdown output, and surface the same value as the ``timestamp`` field in
@@ -135,6 +142,8 @@ DEFAULTS: Dict[str, Any] = {
     "gpt_metadata": True,
     "gpt_names_xlsx": None,
     "web_urls": dict(WEB_URLS_DEFAULT),
+    "asset_mode": "symlink",
+    "inline_pastes": True,
 }
 
 

@@ -508,7 +508,7 @@ class MessageProcessor:
         # Sub-types observed in real exports:
         #   webpage_extended  → top-level url + title + snippet + attribution
         #   sources_footnote  → nested sources[] with title + url + attribution
-        #   grouped_webpages  → matched_text + items (usually empty)
+        #   grouped_webpages / nav_list → populated items + fallback_items
         #   image_inline      → no URLs, skip
         cr_level = cfg.get("content_references", "off")
         if cr_level != "off":
@@ -555,7 +555,43 @@ class MessageProcessor:
                         if isinstance(site, dict):
                             add_url(site.get("url"))
 
-        return sorted(urls), rich_sources
+                # Recent exports populate grouped_webpages.items. Navigation
+                # references use the same shape; fallback_items can carry the
+                # only usable sources when the primary items are absent.
+                for field in ("items", "fallback_items"):
+                    items = ref.get(field) or []
+                    if not isinstance(items, list):
+                        continue
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        normalized = self._normalize_web_url(item.get("url"))
+                        if normalized:
+                            urls.add(normalized)
+                            if cr_level == "rich":
+                                entry_dict = {
+                                    "source": "content_references",
+                                    "url": normalized,
+                                }
+                                for key in ("title", "snippet", "attribution"):
+                                    if item.get(key):
+                                        entry_dict[key] = item[key]
+                                rich_sources.append(entry_dict)
+                        sites = item.get("supporting_websites") or []
+                        if not isinstance(sites, list):
+                            continue
+                        for site in sites:
+                            add_url(site.get("url") if isinstance(site, dict) else site)
+
+        # Merge duplicate sources across metadata paths while retaining richer
+        # details that occur only in an items entry or a fallback reference.
+        by_url: Dict[str, Dict[str, Any]] = {}
+        for source in rich_sources:
+            target = by_url.setdefault(source["url"], dict(source))
+            for key, value in source.items():
+                if not target.get(key) and value:
+                    target[key] = value
+        return sorted(urls), list(by_url.values())
 
     @staticmethod
     def _trim_unbalanced_delimiters(url: str) -> str:

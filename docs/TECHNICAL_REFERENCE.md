@@ -35,6 +35,8 @@ class ConversationExtractorV2:
         config_path: Optional[str] = None,
         *,
         branch_links: Optional[bool] = None,           # keyword-only; config default True
+        asset_mode: Optional[str] = None,              # symlink | copy | none
+        inline_pastes: Optional[bool] = None,          # config default True
     )
         """
         Initialize the extractor.
@@ -81,6 +83,11 @@ class ConversationExtractorV2:
                 new option is keyword-only, preserving the positional
                 argument order through `config_path` from earlier fork
                 versions.
+            asset_mode / inline_pastes: Keyword-only controls for named
+                exported assets and large pasted text. Defaults from YAML
+                are `symlink` and `True`. Asset discovery/export occurs in
+                `extract_all()`; in-memory per-conversation rendering does
+                not scan directories or export files automatically.
 
         Creates:
             - Output directories (md/, json/) as needed
@@ -91,7 +98,10 @@ class ConversationExtractorV2:
     
     def extract_all(self) -> None
         """
-        Main extraction method. Processes all conversations.
+        Main extraction method. Accepts an explicit file, a manifest, or
+        an extracted export directory via input_file. Uses inputs.py for
+        discovery and one-shard-at-a-time loading, skips duplicate IDs,
+        and uses assets.py for named asset export and message association.
         
         Side Effects:
             - Creates markdown files in output_dir

@@ -56,9 +56,15 @@ usually sufficient.
   `../conversations-000.json`, `../conversations-001.json`, etc.
 - The `Ads__...zip` and `Files__...zip` archives are not required for the
   current Markdown conversation extraction workflow.
-- `make extract` discovers `../conversations.json` and
-  `../conversations-*.json`, then writes every run into the same `output/`
-  directory.
+- `make extract` passes `INPUT` or `INPUT_DIR` to the CLI's shared discovery.
+  Directory input prefers the conversation files declared by a version-1
+  `export_manifest.json`, then `conversations.json`, then numbered shards.
+  All shards are processed in one run into `output/`; an explicit file stays
+  single-file input. Missing declared shards must not be silently skipped.
+- Named assets default to relative symlinks under `output/assets/`; use
+  `ASSET_MODE=copy` for portability or `ASSET_MODE=none` to disable handling.
+  Large pasted text is included inline by default; `INLINE_PASTES=false`
+  keeps attachment links without expanding the text. Raw assets stay unchanged.
 - Treat `output/`, `logs/`, `data/`, and raw `conversations*.json` files as
   generated or private data unless a task explicitly targets them.
 

@@ -16,8 +16,8 @@ Newer Privacy Portal exports may no longer contain a single top-level
 `User Online Activity/`; the chat data is inside
 `Conversations__*-chatgpt-*.zip` and can be split across files such as
 `conversations-000.json`, `conversations-001.json`, etc. This fork automates
-running the extractor once for each split file while writing all results into
-the same output directory.
+discovering every conversation shard and processing them together into the
+same output directory.
 
 It also preserves more source-link data from newer exports by reading
 message-level metadata such as `safe_urls`, `search_result_groups`, and
@@ -26,7 +26,7 @@ message-level metadata such as `safe_urls`, `search_result_groups`, and
 ## Features
 
 - Processes ChatGPT `conversations.json` export files
-- Works with split export files such as `conversations-000.json`, `conversations-001.json`, etc. when newer exports are partitioned
+- Discovers all conversation shards from `export_manifest.json`, with older single-file and numbered-shard fallbacks
 - Converts complex conversation graphs to linear transcripts
 - Filters out most system messages (keeps at most one user-system prompt) and hidden/tool messages, except when they contain meaningful content.
 - Preserves code blocks, citations, and file references
@@ -37,6 +37,7 @@ message-level metadata such as `safe_urls`, `search_result_groups`, and
 - Filters certain hidden content and revision history
 - Multiple output formats: Markdown, JSON, or both simultaneously
 - Timestamp preservation: Maintains original creation/update times on files
+- Restores named attachments as relative symlinks or copies and includes large pasted text in the originating message
 
 ## Requirements
 
@@ -96,10 +97,83 @@ make extract
 `../Conversations__*-chatgpt-*.zip`, creating files such as
 `../conversations-000.json`, `../conversations-001.json`, etc. without
 overwriting existing files. `make extract` installs the package with `uv`,
-processes every discovered `../conversations.json` or
-`../conversations-*.json` file, and writes all results into the same `output/`
-tree. Markdown output lands in `output/md/`. File timestamp preservation is
-enabled by default.
+passes `INPUT_DIR` to the same discovery code used by the CLI, and writes all
+results into the same `output/` tree in one run. Settings exports with files
+directly at the ZIP root can start with `make list-inputs` and `make extract`;
+the nested ZIP extraction step is only needed when such a ZIP is present.
+Markdown output lands in `output/md/`. File timestamp preservation is enabled
+by default.
+
+## Input discovery and attachments
+
+You can pass an extracted export directory, its `export_manifest.json`, or one
+explicit conversation JSON file:
+
+```bash
+uv run chatgpt-extractor /path/to/export ./output
+uv run chatgpt-extractor /path/to/export/export_manifest.json ./output
+uv run chatgpt-extractor /path/to/export --list-inputs
+```
+
+For directory input, a version-1 manifest selects the conversation files in its
+declared order. Missing files, unsupported manifest versions, and unsafe paths
+produce an error instead of silently converting part of the history. Without a
+manifest, discovery prefers `conversations.json`, then numbered
+`conversations-*.json` shards. An already-extracted `User Online Activity/`
+category folder is also recognized. An explicitly supplied shard processes
+only that file. Nested ZIPs must be extracted first.
+
+All discovered shards share one extraction run, schema/failure reports, and
+optional consolidated JSON file. Repeated conversation IDs are logged and
+skipped after their first occurrence. Input loading retains at most one shard
+at a time; multi-shard runs read each shard once to count and validate it and
+again to process it.
+
+Available assets are restored under `output/assets/`. The extractor uses
+`conversation_asset_file_names.json` and `library_files.json` to recover names
+and match file IDs, image pointers, file references, and originating message IDs.
+Unreferenced available assets are retained too. Equal filenames receive stable
+numeric suffixes, and the same exported file is reused across messages and runs.
+Files already present in the output are not overwritten. Basic file-signature
+detection supplies an extension when a `.dat` asset has no recorded format.
+
+```bash
+# Default: named symlinks back to the extracted original assets
+make extract
+
+# Self-contained attachments, suitable for moving the output elsewhere
+make extract ASSET_MODE=copy
+
+# Keep attachment links but omit the inline text of large pastes
+make extract INLINE_PASTES=false
+
+# Disable all asset handling for the legacy transcript behavior
+make extract ASSET_MODE=none
+```
+
+The CLI equivalents are `--asset-mode symlink|copy|none` and
+`--inline-pastes` / `--no-inline-pastes`; YAML keys are `asset_mode` and
+`inline_pastes`. Explicit CLI/constructor values override configuration.
+Symlinks are relative when possible and require the extracted originals to
+remain available; Windows cross-drive targets use absolute links. Systems
+without symlink permissions can use copy mode.
+
+Messages link their available files, and images render inline. Assets in JSON
+carry `id`, `name`, `path`, and `mime_type`; `path` is relative to the base output
+directory. Missing assets leave the existing filename placeholders where
+available. Library metadata alone does not guarantee that file bytes were
+included in the export.
+
+Attachments marked `is_big_paste` are decoded as UTF-8 (or BOM-marked UTF-16)
+and included in full within their originating message in both Markdown and JSON.
+They are appended beneath the message text with a “Pasted text” label and a
+literal code block, preserving embedded code fences. Text already present in
+the message is not duplicated. The original `.dat` files remain unchanged.
+
+Source extraction also reads populated `content_references[].items` and
+`fallback_items`, including grouped webpages and navigation lists. Rich mode
+preserves titles, snippets, and attribution; duplicate normalized URLs share
+one source entry with the available details combined.
 
 Useful overrides:
 

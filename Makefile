@@ -1,4 +1,4 @@
-# Makefile for ChatGPT Privacy Portal exports.
+# Makefile for extracted ChatGPT Settings and Privacy Portal exports.
 #
 # Default layout assumes this repository was cloned into:
 #   User Online Activity/chatgpt-conversation-extractor/
@@ -22,8 +22,10 @@ PRESERVE_TIMESTAMPS ?= true
 # Optional extractor features.
 CONFIG         ?=
 GPT_NAMES_XLSX ?=
+ASSET_MODE     ?=
+INLINE_PASTES  ?=
 
-INPUT_FILES := $(sort $(if $(INPUT),$(INPUT),$(wildcard $(INPUT_DIR)/conversations.json) $(wildcard $(INPUT_DIR)/conversations-*.json)))
+INPUT_PATH  = $(if $(INPUT),$(INPUT),$(INPUT_DIR))
 MD_DIR      ?= $(OUTPUT)/md
 
 EXTRACT_ARGS = --output-format "$(FORMAT)" --preserve-timestamps "$(PRESERVE_TIMESTAMPS)"
@@ -32,6 +34,14 @@ EXTRACT_ARGS += --config "$(CONFIG)"
 endif
 ifneq ($(GPT_NAMES_XLSX),)
 EXTRACT_ARGS += --gpt-names-xlsx "$(GPT_NAMES_XLSX)"
+endif
+ifneq ($(ASSET_MODE),)
+EXTRACT_ARGS += --asset-mode "$(ASSET_MODE)"
+endif
+ifeq ($(INLINE_PASTES),false)
+EXTRACT_ARGS += --no-inline-pastes
+else ifeq ($(INLINE_PASTES),true)
+EXTRACT_ARGS += --inline-pastes
 endif
 
 .PHONY: help sync install list-inputs extract-conversations-zip check-inputs extract extract-script extract-and-fix fix-timestamps test lint typecheck build clean
@@ -47,13 +57,14 @@ help:
 	@echo "  make extract INPUT_DIR=/path/to/User\\ Online\\ Activity"
 	@echo "  make extract FORMAT=both OUTPUT=./output"
 	@echo "  make extract GPT_NAMES_XLSX=/path/to/GPT_Names.xlsx"
+	@echo "  make extract ASSET_MODE=copy INLINE_PASTES=true"
 	@echo "  make extract-and-fix"
 	@echo
 	@echo "Current settings:"
 	@echo "  INPUT              = $(INPUT)"
 	@echo "  INPUT_DIR          = $(INPUT_DIR)"
 	@echo "  CONVERSATIONS_ZIP  = $(CONVERSATIONS_ZIP)"
-	@echo "  INPUT_FILES        = $(INPUT_FILES)"
+	@echo "  INPUT_PATH         = $(INPUT_PATH)"
 	@echo "  OUTPUT             = $(OUTPUT)"
 	@echo "  FORMAT             = $(FORMAT)"
 	@echo "  PRESERVE_TIMESTAMPS= $(PRESERVE_TIMESTAMPS)"
@@ -63,8 +74,8 @@ sync:
 
 install: sync
 
-list-inputs: check-inputs
-	@printf '%s\n' $(INPUT_FILES)
+list-inputs: sync
+	"$(UV)" run chatgpt-extractor "$(INPUT_PATH)" --list-inputs
 
 extract-conversations-zip:
 	@if [ -z "$(CONVERSATIONS_ZIP)" ]; then \
@@ -75,30 +86,14 @@ extract-conversations-zip:
 	@echo "Extracting $(CONVERSATIONS_ZIP) into $(INPUT_DIR)"
 	unzip -n "$(CONVERSATIONS_ZIP)" -d "$(INPUT_DIR)"
 
-check-inputs:
-	@if [ -z "$(INPUT_FILES)" ]; then \
-		echo "No conversation export files found."; \
-		echo "Expected $(INPUT_DIR)/conversations.json or $(INPUT_DIR)/conversations-*.json."; \
-		echo "If you only see Conversations__*-chatgpt-*.zip, run: make extract-conversations-zip"; \
-		echo "Override with INPUT=/path/to/file.json or INPUT_DIR=/path/to/export-dir."; \
-		exit 1; \
-	fi
+check-inputs: sync
+	@"$(UV)" run chatgpt-extractor "$(INPUT_PATH)" --list-inputs > /dev/null
 
-extract: install check-inputs
-	@mkdir -p "$(OUTPUT)"
-	@set -e; \
-	for input in $(INPUT_FILES); do \
-		echo "Extracting $$input -> $(OUTPUT)"; \
-		"$(UV)" run chatgpt-extractor "$$input" "$(OUTPUT)" $(EXTRACT_ARGS); \
-	done
+extract: install
+	"$(UV)" run chatgpt-extractor "$(INPUT_PATH)" "$(OUTPUT)" $(EXTRACT_ARGS)
 
-extract-script: install check-inputs
-	@mkdir -p "$(OUTPUT)"
-	@set -e; \
-	for input in $(INPUT_FILES); do \
-		echo "Extracting $$input -> $(OUTPUT)"; \
-		"$(UV)" run python extract.py "$$input" "$(OUTPUT)" $(EXTRACT_ARGS); \
-	done
+extract-script: install
+	"$(UV)" run python extract.py "$(INPUT_PATH)" "$(OUTPUT)" $(EXTRACT_ARGS)
 
 # Compatibility with the blog-post workflow. Usually unnecessary now because
 # --preserve-timestamps true is the default, but useful for old output trees.

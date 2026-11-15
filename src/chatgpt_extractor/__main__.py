@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .extractor import ConversationExtractorV2
 from .logging_config import configure_production_logging, get_logger, log_exception
+from .inputs import discover_export
 
 
 def run_failure_analysis(input_file: str, output_dir: str) -> None:
@@ -102,7 +103,10 @@ Migration note for v3.1:
         "input_file",
         nargs="?",
         default="data/raw/conversations.json",
-        help="Path to conversations.json (default: data/raw/conversations.json)",
+        help=(
+            "Conversation JSON, export_manifest.json, or extracted export "
+            "directory (default: data/raw/conversations.json)"
+        ),
     )
 
     parser.add_argument(
@@ -206,6 +210,24 @@ Migration note for v3.1:
         ),
     )
 
+    parser.add_argument(
+        "--list-inputs",
+        action="store_true",
+        help="List discovered conversation files without extracting or creating output",
+    )
+    parser.add_argument(
+        "--asset-mode",
+        choices=["symlink", "copy", "none"],
+        default=None,
+        help="Restore named assets as symlinks (default), copies, or disable asset handling",
+    )
+    parser.add_argument(
+        "--inline-pastes",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include large pasted text in messages (default: true)",
+    )
+
     # Existing options
     parser.add_argument(
         "--analyze-failures",
@@ -220,6 +242,14 @@ Migration note for v3.1:
     )
 
     args = parser.parse_args()
+
+    if args.list_inputs:
+        try:
+            for path in discover_export(Path(args.input_file)).files:
+                print(path)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+        return
 
     # Initialize logging before any operations for complete diagnostic coverage
     logger = configure_production_logging(debug=args.debug)
@@ -253,6 +283,8 @@ Migration note for v3.1:
             gpt_metadata=args.gpt_metadata,
             gpt_names_xlsx=args.gpt_names_xlsx,
             config_path=args.config_path,
+            asset_mode=args.asset_mode,
+            inline_pastes=args.inline_pastes,
         )
         extractor.extract_all()
 
