@@ -556,8 +556,8 @@ class TestInteractiveCardFallback:
         """Never lose the message: with no usable fallback, render what the
         message text holds (today's behaviour) and say so in the log."""
         with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
-            out = self._render(processor, fallback, source="SOURCE TEXT")
-        assert out == "SOURCE TEXT"
+            out = self._render(processor, fallback, source="SOURCE TEXT\n<box/>")
+        assert out == "SOURCE TEXT\n<box/>"
         assert any(
             r.levelname == "WARNING"
             and "fallbackMarkdown" in r.getMessage()
@@ -821,11 +821,13 @@ class TestCardHiddenContent:
     def test_code_noise_is_not_listed(self, processor):
         fb = "Intro paragraph."
         out = self._render(processor, fb)
+        # "Read more" (a link label) is visible text, so it may be listed;
+        # attribute values, colours, paths and addresses never are.
         for noise in (
             "M35 14",
             "var(--viz-text)",
             "https://example.com/page",
-            "Read more",
+            "lg",
         ):
             assert noise not in out.partition("> [!note]-")[2], noise
 
@@ -834,7 +836,8 @@ class TestCardHiddenContent:
             "Intro paragraph. Release planning overview. "
             "Which feature should ship first in the next release? A credible answer. "
             "How should the rollout be staged across regions? Two examples "
-            "with results. My drive contains mostly photos and videos"
+            "with results. My drive contains mostly photos and videos. "
+            "[Read more](https://example.com/page)"
         )
         assert "[!note]" not in self._render(processor, fb)
 
@@ -905,3 +908,131 @@ def test_blank_runs_left_by_dropped_markers_collapse_outside_code():
     out = proc.extract_message_content(_card_msg(fb), "c")
     assert "---\n\nItem two" in out
     assert "a\n\n\n\nb" in out
+
+
+class TestCardDetection:
+    """Only messages whose text holds card code are cards.
+
+    Measured: 758 of 1,564 on-path messages carry card metadata (and a text
+    version) while their text is an ordinary Markdown reply. Those keep
+    today's rendering, byte for byte, and are not counted.
+    """
+
+    @pytest.fixture
+    def processor(self):
+        return MessageProcessor(SchemaEvolutionTracker())
+
+    def test_plain_reply_with_card_metadata_is_unchanged(self, processor, caplog):
+        msg = _card_msg(
+            "Plain reply\\: text version", source="Plain reply: the message text"
+        )
+        with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
+            assert (
+                processor.extract_message_content(msg, "c")
+                == "Plain reply: the message text"
+            )
+        assert processor.is_interactive_card(msg) is False
+        assert not caplog.records
+
+    def test_tags_inside_a_code_block_are_not_card_code(self, processor):
+        source = "Example:\n```html\n<box>hi</box>\n```"
+        msg = _card_msg("Example text version", source=source)
+        assert processor.extract_message_content(msg, "c") == source
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "Intro\n<box gap={2}>",
+            "Price: {turn3product0.displayed_price}",
+            "{@body const [a, setA] = DIL.useState(1)}",
+            "{#each rows as r}",
+        ],
+    )
+    def test_card_code_is_recognised(self, processor, source):
+        assert processor.is_interactive_card(_card_msg("Text version", source=source))
+
+
+def test_link_lines_match_the_text_versions_link_markers():
+    """A message line that is a link must match the text version's url
+    marker, or a complete text version is wrongly refused."""
+    proc = MessageProcessor(SchemaEvolutionTracker())
+    source = (
+        "Companies to check, with their sites listed below:\n"
+        "- [Kennel Example Removals](https://removals.example.com/)\n"
+        "https://www.example.org/exhibitions/long-page-name\n"
+        "<box/>"
+    )
+    fb = (
+        "Companies to check, with their sites listed below:\n- "
+        + _marker("url", "Kennel Example Removals", "https://removals.example.com/")
+        + "\n"
+        + _marker(
+            "url",
+            "Exhibition page",
+            "https://www.example.org/exhibitions/long-page-name",
+        )
+    )
+    out = proc.extract_message_content(_card_msg(fb, source=source), "c")
+    assert "[Kennel Example Removals](https://removals.example.com/)" in out
+    assert "<box/>" not in out
+
+
+@pytest.mark.parametrize(
+    "message_line, fallback_line",
+    [
+        # Same link, address written differently (sandbox file, encoding).
+        (
+            "1. [Claim form for the local branch office](sandbox:/mnt/data/Claim%20form.md) — to file in person",
+            "1. [Claim form for the local branch office](sandbox:/mnt/data/Claim form.md) — to file in person",
+        ),
+        # A table separator row: alignment syntax differs, no words to compare.
+        ("|---|---:|---:|---:|---:|---:|---:|", "|--------|--------|--------|"),
+        # A blockquote the text version wraps over several lines.
+        (
+            "> Please verify the registered address of the association and report the outcome.",
+            "> Please verify the registered address\n> of the association and report the outcome.",
+        ),
+    ],
+    ids=["link-address-differs", "table-separator", "wrapped-blockquote"],
+)
+def test_completeness_ignores_differences_in_form(message_line, fallback_line):
+    from chatgpt_extractor.processors import _missing_prose_lines
+
+    assert _missing_prose_lines(message_line + "\n<box/>", fallback_line) == []
+
+
+class TestShortCardLabels:
+    """Short labels a card displays (tab names, options, badges) are content.
+
+    The 12-character, two-word floor alone dropped them; measured on the vault
+    they include "1. Context", "A: Strategy", "+1 better" and "London, UK".
+    Attribute values (size="md", color="secondary") stay excluded.
+    """
+
+    @pytest.mark.parametrize(
+        "line, label",
+        [
+            ('<tab label="x"><text>1. Context</text></tab>', "1. Context"),
+            ("<badge>+1 better</badge>", "+1 better"),
+            ('  ["8", "Foundations"],', "Foundations"),
+            ('const where = {city: "London, UK"}', "London, UK"),
+            ('{options: ["Backup A", "Backup B"]}', "Backup A"),
+        ],
+    )
+    def test_short_labels_are_found(self, line, label):
+        from chatgpt_extractor.processors import _card_strings
+
+        assert label in _card_strings(line)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            '<text size="md" color="secondary" align="center">',
+            '<icon name="arrow-down"/>',
+            '{style: {variant: "secondary", tone: "subtle"}}',
+        ],
+    )
+    def test_attribute_and_style_values_are_not(self, line):
+        from chatgpt_extractor.processors import _card_strings
+
+        assert _card_strings(line) == []

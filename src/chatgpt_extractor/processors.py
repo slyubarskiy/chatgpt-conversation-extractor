@@ -38,10 +38,13 @@ _MARKER_RE = re.compile("\ue200([a-z_]+)((?:\ue202.*?)?)\ue201", re.S)
 _MARKER_SEP = "\ue202"
 
 # Markers a reader gets nothing from. Citation ids (``turn1search1``) only
-# resolve against search results the fallback does not carry, and the
-# message's sources already reach the Citations block from metadata; an
-# image group is a search phrase for pictures, not a picture. Leading spaces
-# are part of the match so "text. <marker>" does not leave "text. ".
+# resolve against search results the text version does not carry; the
+# previous rendering showed them as equally bare ids in <Cite> tags. Any
+# sources block a note has comes from message metadata and is unaffected
+# (verified: identical before and after on 260 card notes, though 30 of the
+# 79 citing notes have none either way). An image group is a search phrase
+# for pictures, not a picture. Leading spaces are part of the match so
+# "text. <marker>" does not leave "text. ".
 _DROPPED_MARKER_KINDS = {"cite", "filecite", "image_group"}
 _DROPPED_MARKER_RE = re.compile(
     "[ \t]*(?:" + "|".join(sorted(_DROPPED_MARKER_KINDS)) + ")" "(?:.*?)?",
@@ -80,18 +83,69 @@ _NEEDLESS_BANG_RE = re.compile(r"\\!(?!\[)")
 # expected verbatim in the text version.
 _CARD_CODE_LINE_RE = re.compile(r"<[^>\n]*>|\{[^{}\n]*\}")
 _DATA_ROW_RE = re.compile(r'^\s*[\[\]{}(),"]')
-_ANY_MARKER_RE = re.compile("\ue200[a-z_]+(?:\ue202[^\ue201]*)*\ue201")
 # Lines shorter than this (after normalising) are not checked: numbering and
 # short labels are where the two renderings differ in form, and the 25-char
 # floor is what the 1,790-of-1,850 measurement above used.
 _MIN_CHECKED_LINE = 25
 
 
+# Card code proper. Card metadata alone is not enough: 758 of 1,564 measured
+# messages carry it while their text is an ordinary Markdown reply, and those
+# must keep today's rendering byte for byte. Component tags are capitalised
+# (<Entity>, <AsyncImage>) and may sit mid-line; layout tags (<box>, <row>)
+# open a line. Fenced code is removed first, since a reply can show HTML in
+# a code block without being a card.
+_FENCE_RE = re.compile(r"(```|~~~)[^\n]*\n.*?\n\1", re.S)
+_CARD_CODE_RE = re.compile(
+    r"(?m)^\s*<[a-z][\w-]*[\s/>]|<[A-Z][A-Za-z0-9]*[\s/>]"
+    r"|\{turn\d+|\{@body|\{#each|\{/each|\{:else"
+)
+_MD_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\n]*)\)")
+_BARE_ADDRESS_RE = re.compile(r"(?:https?|sandbox):\S+")
+_QUOTE_MARK_RE = re.compile(r"(?m)^[ \t]*>[ \t]?")
+
+
+def _has_card_code(message_text: str) -> bool:
+    """Whether a message's text holds card code outside fenced code blocks."""
+    return bool(_CARD_CODE_RE.search(_FENCE_RE.sub("", message_text)))
+
+
+def _marker_words(match: "re.Match[str]") -> str:
+    """The words a marker shows, for comparison only (never rendered).
+
+    Links keep their label, entities their name; everything else counts as
+    blank. Stripping links outright made a message line that is a link look
+    missing, and complete text versions were refused. Addresses are left out
+    because the two renderings write the same one differently (encoding,
+    sandbox file paths).
+    """
+    kind = match.group(1)
+    args = (match.group(2) or "").split(_MARKER_SEP)[1:]
+    if kind == "url" and len(args) == 2:
+        return f" {args[0]} "
+    if kind == "entity" and len(args) == 1:
+        try:
+            value = json.loads(args[0])
+        except ValueError:
+            return " "
+        if isinstance(value, list) and len(value) >= 2 and isinstance(value[1], str):
+            return f" {value[1]} "
+    return " "
+
+
 def _comparable(text: str) -> str:
-    """Normalise text so the message and its text version can be compared."""
+    """Normalise text so the message and its text version can be compared.
+
+    Ignores what the two renderings legitimately write differently: escapes,
+    entities, emphasis, link addresses, blockquote markers (the text version
+    may wrap one quote over several "> " lines), spacing and case.
+    """
     text = html.unescape(text)
+    text = _MARKER_RE.sub(_marker_words, text)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _BARE_ADDRESS_RE.sub(" ", text)
+    text = _QUOTE_MARK_RE.sub("", text)
     text = re.sub(r"\\([^\w\s])", r"\1", text)
-    text = _ANY_MARKER_RE.sub(" ", text)
     text = text.replace("**", "").replace("__", "").replace("`", "")
     return re.sub(r"\s+", " ", text).strip().lower()
 
@@ -109,7 +163,8 @@ def _missing_prose_lines(message_text: str, fallback: str) -> List[str]:
         if _CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line):
             continue
         core = _comparable(line).strip(" |#->*")
-        if len(core) < _MIN_CHECKED_LINE:
+        # No letters: a table separator or rule, whose syntax differs freely.
+        if len(core) < _MIN_CHECKED_LINE or not re.search(r"[^\W\d_]", core):
             continue
         if "\ufffd" in core:
             pattern = ".{1,2}".join(re.escape(p) for p in re.split("\ufffd+", core))
@@ -144,9 +199,40 @@ _CODE_CHARS_RE = re.compile(r'[<>{}=;`"]')
 # out ids, sizes, colours, SVG path data and the like.
 _READABLE_RE = re.compile(r"[^\W\d_]{3,}\W+(?:.*\W)?[^\W\d_]{3,}", re.S)
 _MIN_CARD_STRING = 12
+_LETTERS_RE = re.compile(r"[^\W\d_]{3,}")
+# Citation ids (turn0file0, turn841160search1) are references, not text.
+_CITATION_ID_RE = re.compile(r"turn\d+[a-z_]+\d+")
 _HIDDEN_CONTENT_CALLOUT = (
     "> [!note]- More card content (other tabs, options and buttons)"
 )
+
+
+def _keep_card_string(s: str, kind: str) -> bool:
+    """Whether one candidate string from card code is reader-visible content.
+
+    ``kind`` is where it came from, which decides how strict to be:
+    - "attr": a quoted value right after ``=`` -- mostly layout (size="md",
+      color="secondary"); kept only when long and wordy (a title or alt text).
+    - "data": a quoted value in the card's data -- kept when wordy, or when it
+      looks like a label: three or more letters plus a space, a digit or a
+      capital ("Backup A", "London, UK", "Foundations"). Bare lowercase words
+      there are style values ("secondary", "arrow-down").
+    - "text": text between tags, which the card displays -- kept with three
+      or more letters ("1. Context", "+1 better").
+    """
+    if (
+        s.startswith(("http://", "https://"))
+        or "var(--" in s
+        or _CITATION_ID_RE.fullmatch(s)
+        or not _LETTERS_RE.search(s)
+    ):
+        return False
+    wordy = len(s) >= _MIN_CARD_STRING and bool(_READABLE_RE.search(s))
+    if kind == "attr":
+        return wordy
+    if kind == "data":
+        return wordy or bool(re.search(r"[\s\d]", s)) or s[0].isupper()
+    return True
 
 
 def _card_strings(message_text: str) -> List[str]:
@@ -158,30 +244,27 @@ def _card_strings(message_text: str) -> List[str]:
             continue  # prose lines are covered by the completeness check
         candidates = []
         for m in _STRING_LITERAL_RE.finditer(line):
+            kind = "attr" if line[: m.start()].rstrip().endswith("=") else "data"
             try:
                 # Card code is JavaScript-like; its string escapes match JSON's
-                # for everything seen in practice (\" \n —).
-                candidates.append(json.loads('"' + m.group(1) + '"'))
+                # for everything seen in practice (\" \n \u2014).
+                candidates.append((json.loads('"' + m.group(1) + '"'), kind))
             except ValueError:
-                candidates.append(m.group(1))
+                candidates.append((m.group(1), kind))
         candidates.extend(
-            _TEMPLATE_HOLE_RE.sub("…", m.group(1))
+            (_TEMPLATE_HOLE_RE.sub("…", m.group(1)), "data")
             for m in _TEMPLATE_STRING_RE.finditer(line)
         )
         # Only lines that hold tags or expressions have text pieces; a data
         # row ('["a", "b"],') is covered by the string literals above.
         pieces = _TAG_OR_EXPR_RE.split(line)
         if len(pieces) > 1:
-            candidates.extend(p for p in pieces if not _CODE_CHARS_RE.search(p))
-        for s in candidates:
+            candidates.extend(
+                (p, "text") for p in pieces if not _CODE_CHARS_RE.search(p)
+            )
+        for s, kind in candidates:
             s = " ".join(s.split())
-            if (
-                len(s) < _MIN_CARD_STRING
-                or s.startswith(("http://", "https://"))
-                or "var(--" in s
-                or not _READABLE_RE.search(s)
-                or s in seen
-            ):
+            if s in seen or not _keep_card_string(s, kind):
                 continue
             seen.add(s)
             found.append(s)
@@ -417,14 +500,18 @@ class MessageProcessor:
     def is_interactive_card(cls, msg: Dict[str, Any]) -> bool:
         """Whether a message will render from a card's text version.
 
-        True exactly when ``extract_message_content`` uses it: the text
-        version is present, non-blank and complete. Callers count these per
-        conversation for the ``interactive_cards`` frontmatter field, so the
-        count matches what the note shows.
+        True exactly when ``extract_message_content`` uses it: the message
+        holds card code, and the text version is present, non-blank and
+        complete. Callers count these per conversation for the
+        ``interactive_cards`` frontmatter field, so the count matches what
+        the note shows.
         """
+        text = _message_text(msg)
         fallback = cls._raw_fallback(msg)
-        return fallback is not None and not _missing_prose_lines(
-            _message_text(msg), fallback
+        return (
+            fallback is not None
+            and _has_card_code(text)
+            and not _missing_prose_lines(text, fallback)
         )
 
     def _card_fallback(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
@@ -438,7 +525,9 @@ class MessageProcessor:
           rendering it would cut the reply short.
         """
         dil = (msg.get("metadata") or {}).get("model_dil_v2")
-        if not isinstance(dil, dict):
+        if not isinstance(dil, dict) or not _has_card_code(_message_text(msg)):
+            # No card code: an ordinary reply that happens to carry card
+            # metadata. Rendered as before, silently -- that is the normal case.
             return None
         fallback = self._raw_fallback(msg)
         if fallback is None:
