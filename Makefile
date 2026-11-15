@@ -123,7 +123,7 @@ test: sync
 lint: sync
 	"$(UV)" run flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
 	"$(UV)" run flake8 src tests --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
-	"$(UV)" run black --fast --workers 1 --check --diff src tests extract.py || true
+	"$(UV)" run black --fast --workers 1 --check --diff src tests extract.py
 
 typecheck: sync
 	"$(UV)" run mypy src/chatgpt_extractor

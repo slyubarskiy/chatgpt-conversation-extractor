@@ -16,9 +16,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Union
 
 
-DEFAULT_LOG_FORMAT = (
-    "[%(asctime)s] [%(levelname)-8s] [%(name)s:%(funcName)s:%(lineno)d] - %(message)s"
-)
+DEFAULT_LOG_FORMAT = "[%(asctime)s] [%(levelname)-8s] [%(name)s:%(funcName)s:%(lineno)d] - %(message)s"
 JSON_LOG_FORMAT = '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "module": "%(name)s", "function": "%(funcName)s", "line": %(lineno)d, "message": "%(message)s"}'
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -56,9 +54,7 @@ class MillisecondFormatter(logging.Formatter):
             record.exc_info = None
             result = super().format(record)
             if exc_info:
-                result += (
-                    f"\nTraceback:\n{''.join(traceback.format_exception(*exc_info))}"
-                )
+                result += f"\nTraceback:\n{''.join(traceback.format_exception(*exc_info))}"
             return result
 
         return super().format(record)
@@ -282,11 +278,7 @@ def log_exception(logger: logging.Logger, exc: Exception, context: str = "") -> 
     exc_msg = str(exc)
     exc_traceback = traceback.format_exc()
 
-    log_msg = (
-        f"Exception in {context}: {exc_type}: {exc_msg}"
-        if context
-        else f"{exc_type}: {exc_msg}"
-    )
+    log_msg = f"Exception in {context}: {exc_type}: {exc_msg}" if context else f"{exc_type}: {exc_msg}"
 
     logger.error(
         log_msg,
@@ -314,9 +306,7 @@ def configure_production_logging(debug: bool = False) -> logging.Logger:
     level = logging.DEBUG if debug else logging.INFO
 
     # Detect if running in container (common env vars)
-    in_container = any(
-        key in os.environ for key in ["KUBERNETES_SERVICE_HOST", "DOCKER_CONTAINER"]
-    )
+    in_container = any(key in os.environ for key in ["KUBERNETES_SERVICE_HOST", "DOCKER_CONTAINER"])
 
     return setup_logging(
         level=level,

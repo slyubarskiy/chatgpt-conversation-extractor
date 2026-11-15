@@ -62,10 +62,10 @@ This tool was created to solve a personal need for extracting ChatGPT conversati
 3. **Test Thoroughly**
    ```bash
    # Test with your own data
-   python extract.py your_conversations.json test_output/
+   uv run python extract.py your_conversations.json test_output/
    
    # Run any existing tests
-   pytest tests/ (if available)
+   make test
    ```
 
 4. **Document Your Changes**
@@ -74,6 +74,21 @@ This tool was created to solve a personal need for extracting ChatGPT conversati
    - Explain why the change is needed
 
 ### Code Style
+
+**Formatting is enforced**
+- The project is formatted with [Black](https://black.readthedocs.io/) at a line
+  length of 120, configured in `pyproject.toml`.
+- Run `uv run black --fast --workers 1 src tests extract.py` before pushing.
+  CI and `make lint` fail if the tree is not formatted.
+- Run `make sync` from the repository root to install the declared development
+  tools using the repo-local `.uv-cache`.
+- Keep Black in the declared 25.x series. A new Black release can change
+  formatting, so version bumps go in their own PR together with the resulting
+  reformat.
+- Upstream's formatting-only commit #21 is recorded in `.git-blame-ignore-revs`.
+  This fork retains its 120-column style. To keep `git blame` readable
+  locally, run once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+  (GitHub applies this automatically).
 
 **Follow Existing Patterns**
 - Use same naming conventions

@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A merged assistant reply now records when it finished as well as when
+  it began: `merge_continuations` adds `last_segment_time`, the latest
+  `create_time` among the merged segments, beside the first segment's
+  `create_time` (still the rendered stamp). Callers that date a file by its
+  last turn need the finish; the start can be months earlier when a
+  scheduled task appends one segment per run. Bookkeeping only: neither the
+  markdown nor the JSON output reads the key, so output is byte-identical.
+- Branch conversations now link back to the chat they were branched
+  from. ChatGPT records the lineage per-message only, on the last turn
+  inherited from the parent; that turn gains a footer block:
+  `**Branched from:** [Parent Title](https://chatgpt.com/c/<id>) ` +
+  the bare id in backticks. Frontmatter gains `branched_from_id`.
+  A chatgpt.com URL is used rather than a wiki-link because the
+  parent's vault filename is not knowable at render time — it depends
+  on collision suffixing, filename sanitisation and later renames — so
+  only the link text can age, never the target. The frontmatter holds
+  the id alone: the sibling title ChatGPT stores is a branch-time
+  snapshot, stale for 21% of real branches, and a stale value in a
+  machine-readable field invites callers to key on it. Measured across
+  1,619 synced conversations: 202 are branches (12.5%), each carrying
+  exactly one marker, and all 202 parents resolve to a live file.
+  Controlled by `branch_links` (default on).
 - Per-type `web_urls` config overlay for URL extraction control.
   Accepts a preset string (`off | citations | rich`) or an explicit
   per-type map at YAML key `web_urls`, with per-type levels
@@ -58,6 +80,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dicts (e.g. the live-sync renderer).
 
 ### Changed
+- CI: GitHub Actions bumped to their current majors (checkout v7,
+  setup-python v7, cache v6, upload-artifact v7, download-artifact v8,
+  codecov v7, action-gh-release v3), clearing the Node 20 deprecation
+  warning (#26). All run on Node 24 except codecov v7, which is a
+  composite action. Ubuntu runners pinned to `ubuntu-24.04` ahead of
+  the `ubuntu-latest` move to Ubuntu 26 from 2026-10-19, which may not
+  ship Python 3.9. The mypy step's one reported error (a dict inferred as
+  `Dict[str, str]` in the Deep Research path) is fixed with an explicit
+  annotation; no runtime change. mypy stays non-blocking while its
+  version is unpinned.
+- Upstream changes through `33ad32f` are integrated while retaining this
+  fork's `pyproject.toml` packaging, repo-local uv cache, and Makefile shard
+  iteration. `setup.py` remains removed.
+- The new `branch_links` constructor option is keyword-only, preserving
+  all existing positional arguments through `config_path`. Regression
+  coverage checks the original argument order and config precedence.
+- Black formatting is now enforced in CI and `make lint` rather than
+  advisory. This fork retains `line-length = 120` and checks `src`,
+  `tests`, and `extract.py` without the removed `setup.py`.
+  The Black requirement is pinned to the 25.x stable-style series:
+  `line-length` fixes the width but not the style, and Black changes
+  its stable style at calendar-year releases. Contributors should run
+  `uv run black --fast --workers 1 src tests extract.py` before pushing — see
+  CONTRIBUTING.md.
 - `extract_metadata` now emits `models_used:` (the deduped per-
   message `model_slug` set) — the legacy `model:` field still emits
   `default_model_slug` unchanged for backwards compatibility.
@@ -66,6 +112,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_time`, matching "the assistant began replying" semantics.
 
 ### Fixed
+- URL extraction no longer captures surrounding markdown as part of the
+  URL. The regex stops only at whitespace, `<`, `>` and `"`, so a link
+  written as `[https://x.com](https://x.com)` was captured whole as
+  `https://x.com](https://x.com)` and emitted into the
+  `**Web Search URLs:**` block. Captures are now truncated at their first
+  *unbalanced* closing delimiter, which leaves URLs that legitimately
+  contain balanced ones intact — Wikipedia disambiguation paths
+  (`/wiki/Python_(programming_language)`) and bracketed IPv6 hosts
+  (`http://[::1]:8080/`). Measured over 54 real conversations: 17 changed,
+  1,476 captures trimmed, every one removing markup rather than URL
+  content, and no trimmed result left invalid.
+- A malformed URL no longer aborts rendering of the entire
+  conversation. The URL-extraction regex (`https?://[^\s<>"]+`) does not
+  exclude `]` or `)`, so a markdown link written as
+  `[https://x.com](https://x.com)` is captured whole as
+  `https://x.com](https://x.com`. `urlsplit` raises
+  `ValueError: Invalid IPv6 URL` on a netloc containing an unmatched
+  bracket, and that propagated out of `_normalize_web_url` and killed the
+  whole conversation over one junk capture — observed on 3 of 41
+  conversations in a live incremental sync. Unparseable URLs are now
+  dropped, which is how every caller already treats a `None` return.
+  Well-formed bracketed IPv6 hosts (`http://[::1]:8080/`) still parse.
 - Frontmatter `created:` and `updated:` are now emitted as true UTC
   regardless of host timezone. Prior to this change, `extract_metadata`
   called `datetime.fromtimestamp(t).isoformat() + "Z"`, which returns

@@ -53,9 +53,7 @@ class TestCLI:
         mock_extractor_instance = MagicMock()
         mock_extractor.return_value = mock_extractor_instance
 
-        with patch(
-            "sys.argv", ["chatgpt_extractor", "tests/fixtures/sample_conversation.json"]
-        ):
+        with patch("sys.argv", ["chatgpt_extractor", "tests/fixtures/sample_conversation.json"]):
             with patch("pathlib.Path.exists", return_value=True):
                 main()
 
@@ -65,9 +63,7 @@ class TestCLI:
 
     def test_run_failure_analysis_no_log(self, capsys):
         """Test failure analysis when no log exists."""
-        with capture_logs(
-            "chatgpt_extractor.chatgpt_extractor.__main__"
-        ) as log_capture:
+        with capture_logs("chatgpt_extractor.chatgpt_extractor.__main__") as log_capture:
             run_failure_analysis("input.json", "output_dir")
             assert_in_logs(log_capture, "No failures to analyze")
 
@@ -76,8 +72,6 @@ class TestCLI:
         log_file = tmp_path / "conversion_log.log"
         log_file.write_text("Processing complete.\nFailed conversations: 0")
 
-        with capture_logs(
-            "chatgpt_extractor.chatgpt_extractor.__main__"
-        ) as log_capture:
+        with capture_logs("chatgpt_extractor.chatgpt_extractor.__main__") as log_capture:
             run_failure_analysis("input.json", str(tmp_path))
             assert_in_logs(log_capture, "No failures to analyze")

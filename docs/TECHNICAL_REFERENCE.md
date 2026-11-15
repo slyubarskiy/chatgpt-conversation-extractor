@@ -31,7 +31,10 @@ class ConversationExtractorV2:
         per_turn_timestamps: Optional[bool] = None,   # None = read from config (default True)
         gpt_metadata: Optional[bool] = None,           # None = read from config (default True)
         gpt_names_xlsx: Optional[str] = None,          # None = read from config (default None)
+        web_urls: Optional[Union[str, Dict[str, str]]] = None,
         config_path: Optional[str] = None,
+        *,
+        branch_links: Optional[bool] = None,           # keyword-only; config default True
     )
         """
         Initialize the extractor.
@@ -73,6 +76,11 @@ class ConversationExtractorV2:
                 `$CHATGPT_EXTRACTOR_CONFIG`,
                 `./chatgpt_extractor.yaml`, and
                 `~/.config/chatgpt_extractor/config.yaml`.
+            branch_links: Render parent-chat links in Markdown. `None`
+                reads the config layer (built-in default: `True`). This
+                new option is keyword-only, preserving the positional
+                argument order through `config_path` from earlier fork
+                versions.
 
         Creates:
             - Output directories (md/, json/) as needed
@@ -287,6 +295,9 @@ class MessageProcessor:
             - Must be consecutive in graph (_graph_index)
             - Combine content with double newline
             - Merge citations and URLs
+            - Keep the first segment's create_time (the rendered stamp)
+            - Add last_segment_time: the latest segment create_time, when
+              any segment has one (not rendered; for dating by last turn)
         """
 ```
 

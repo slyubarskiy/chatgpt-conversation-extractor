@@ -212,9 +212,7 @@ class TestMessageProcessor:
                             {"url": "https://search.example.com/result-1"},
                             {
                                 "url": "https://search.example.com/result-2",
-                                "supporting_websites": [
-                                    {"url": "https://search.example.com/supporting"}
-                                ],
+                                "supporting_websites": [{"url": "https://search.example.com/supporting"}],
                             },
                         ]
                     }
@@ -237,9 +235,7 @@ class TestMessageProcessor:
                         "sources": [
                             {
                                 "url": "https://refs.example.com/source",
-                                "supporting_websites": [
-                                    {"url": "https://refs.example.com/supporting"}
-                                ],
+                                "supporting_websites": [{"url": "https://refs.example.com/supporting"}],
                             }
                         ],
                     }
@@ -256,16 +252,7 @@ class TestMessageProcessor:
         msg = {
             "content": {"content_type": "text"},
             "metadata": {
-                "citations": [
-                    {
-                        "metadata": {
-                            "url": (
-                                "https://example.com/article"
-                                "?utm_source=chatgpt.com"
-                            )
-                        }
-                    }
-                ],
+                "citations": [{"metadata": {"url": ("https://example.com/article" "?utm_source=chatgpt.com")}}],
                 "content_references": [
                     {
                         "sources": [
@@ -284,12 +271,7 @@ class TestMessageProcessor:
         msg = {
             "content": {
                 "content_type": "text",
-                "parts": [
-                    (
-                        "See https://example.com/article"
-                        "#:~:text=Highlighted%20words"
-                    )
-                ],
+                "parts": ["See https://example.com/article" "#:~:text=Highlighted%20words"],
             },
             "metadata": {
                 "safe_urls": [
@@ -306,9 +288,7 @@ class TestMessageProcessor:
     def test_extract_file_names_from_attachments(self, processor):
         """Test file name extraction from attachments."""
         msg = {
-            "metadata": {
-                "attachments": [{"name": "document.pdf"}, {"name": "image.png"}]
-            },
+            "metadata": {"attachments": [{"name": "document.pdf"}, {"name": "image.png"}]},
             "content": {},
         }
         files = processor.extract_file_names(msg)
@@ -341,7 +321,137 @@ class TestMessageProcessor:
         result = processor.extract_message_content(msg, "test-id")
         assert "I am a developer" in result
         assert "Be concise" in result
-        assert (
-            "The user provided" not in result
-            or len(result) < len(msg["content"]["text"]) * 0.9
-        )
+        assert "The user provided" not in result or len(result) < len(msg["content"]["text"]) * 0.9
+
+
+class TestNormalizeWebUrlMalformedInput:
+    """Guard against URLs that ``urllib.parse.urlsplit`` refuses to parse.
+
+    Real-world trigger: the URL-extraction regex ``https?://[^\\s<>"]+``
+    does not exclude ``]`` or ``)``, so a markdown link written as
+    ``[https://example.com](https://example.com)`` is captured whole as
+    ``https://example.com](https://example.com``. ``urlsplit`` raises
+    ``ValueError: Invalid IPv6 URL`` on a netloc containing an unmatched
+    bracket, which propagated up and aborted rendering of the *entire*
+    conversation. Observed live on 3 of 41 conversations in the
+    2026-08-30 sync.
+    """
+
+    @staticmethod
+    def _norm(value):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._normalize_web_url(value)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Captured from live conversations that failed to render.
+            "https://Calendly.com](https://Calendly.com",
+            "https://calendar.boardy.ai](https://calendar.boardy.ai",
+            # Unmatched opening bracket is rejected by urlsplit too.
+            "https://exa[mple.com/path",
+        ],
+    )
+    def test_malformed_url_returns_none_instead_of_raising(self, url):
+        """Unparseable URLs must be dropped, not propagated as an exception.
+
+        Callers treat ``None`` as "not a usable URL" already — ``add_url``
+        skips falsy values — so returning None loses the junk capture while
+        keeping the rest of the conversation renderable.
+        """
+        assert self._norm(url) is None
+
+    def test_legitimate_ipv6_url_still_parses(self):
+        """The guard must not swallow well-formed bracketed IPv6 hosts."""
+        assert self._norm("http://[::1]:8080/path") == "http://[::1]:8080/path"
+
+    def test_valid_url_normalization_unaffected(self):
+        """Existing utm_source stripping behaviour is unchanged."""
+        assert self._norm("https://example.com/a?utm_source=chatgpt.com") == "https://example.com/a"
+
+
+class TestUrlBalancedDelimiterTrimming:
+    """URL captures must stop where the URL stops, not where whitespace does.
+
+    The extraction regex ``https?://[^\\s<>"]+`` cannot express balanced
+    matching, so it runs past a URL's end into surrounding markup. The common
+    case is a markdown link, ``[https://x.com](https://x.com)``, which yields
+    ``https://x.com](https://x.com``. A blanket "strip trailing brackets" would
+    corrupt legitimate URLs that contain balanced delimiters — Wikipedia
+    disambiguation paths and bracketed IPv6 hosts — so depth counting is used
+    instead. See ``_trim_unbalanced_delimiters``.
+    """
+
+    @staticmethod
+    def _trim(value):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._trim_unbalanced_delimiters(value)
+
+    @staticmethod
+    def _extract(text):
+        from chatgpt_extractor.processors import MessageProcessor
+
+        return MessageProcessor._extract_urls_from_text(text)
+
+    @pytest.mark.parametrize(
+        "captured,expected",
+        [
+            # Real junk captures observed in the vault (2026-08-30 / 08-31 syncs).
+            (
+                "https://meet.google.com/qrk-uvwq-hew](https://meet.google.com/qrk-uvwq-hew)",
+                "https://meet.google.com/qrk-uvwq-hew",
+            ),
+            (
+                "https://Calendly.com](https://Calendly.com",
+                "https://Calendly.com",
+            ),
+            # Trailing ')' from a markdown link with no opener in the URL.
+            ("https://example.com/page)", "https://example.com/page"),
+        ],
+    )
+    def test_unbalanced_closer_truncates_capture(self, captured, expected):
+        assert self._trim(captured) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Balanced parens are legitimate URL content — must survive intact.
+            "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            "https://example.com/a_(b)_c_(d)",
+            # Bracketed IPv6 host is balanced too.
+            "http://[::1]:8080/path",
+            # Nothing to trim.
+            "https://example.com/plain?a=1#frag",
+        ],
+    )
+    def test_balanced_delimiters_are_preserved(self, url):
+        assert self._trim(url) == url
+
+    def test_markdown_link_yields_a_single_clean_url(self):
+        """``[url](url)`` is ONE regex capture, not two, and must trim clean.
+
+        Nothing between the ``]`` and the ``(`` is excluded by the character
+        class, so the regex runs straight through the markup and returns
+        ``https://x.com/a](https://x.com/a)`` as a single token. Trimming at
+        the unbalanced ``]`` leaves exactly one URL.
+        """
+        text = "see [https://x.com/a](https://x.com/a) for details"
+        assert self._extract(text) == ["https://x.com/a"]
+
+    def test_wikipedia_link_in_markdown_keeps_its_parens(self):
+        """The hard case: markdown markup AND legitimate parens together."""
+        text = "[Python](https://en.wikipedia.org/wiki/Python_(programming_language))"
+        assert self._extract(text) == ["https://en.wikipedia.org/wiki/Python_(programming_language)"]
+
+    def test_scheme_only_capture_is_dropped(self):
+        """A capture trimming down to a bare scheme carries no host."""
+        assert self._extract("junk https://] more") == []
+
+    def test_plain_text_urls_unaffected(self):
+        text = "a https://one.example.com and https://two.example.com/x?y=1"
+        assert self._extract(text) == [
+            "https://one.example.com",
+            "https://two.example.com/x?y=1",
+        ]

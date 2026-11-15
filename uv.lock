@@ -373,7 +373,7 @@ requires-dist = [{ name = "pyyaml", specifier = ">=6.0.1" }]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "black", specifier = ">=23.7.0,<26.0" },
+    { name = "black", specifier = ">=25.1,<26" },
     { name = "build", specifier = ">=0.10.0" },
     { name = "flake8", specifier = ">=6.1.0" },
     { name = "isort", specifier = ">=5.12.0" },

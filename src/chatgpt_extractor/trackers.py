@@ -26,9 +26,7 @@ class SchemaEvolutionTracker:
     metadata_keys: Set[str] = field(default_factory=set)
     part_types: Set[str] = field(default_factory=set)
     finish_types: Set[str] = field(default_factory=set)
-    unknown_samples: Dict[str, List[str]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    unknown_samples: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
 
     KNOWN_CONTENT_TYPES = {
         "text",
@@ -60,9 +58,7 @@ class SchemaEvolutionTracker:
         self.content_types.add(content_type)
         if content_type and content_type not in self.KNOWN_CONTENT_TYPES:
             if len(self.unknown_samples["content_types"]) < 10:
-                self.unknown_samples["content_types"].append(
-                    f"{conv_id}: {content_type}"
-                )
+                self.unknown_samples["content_types"].append(f"{conv_id}: {content_type}")
 
     def track_author_role(self, role: str, conv_id: str) -> None:
         """Track message author roles with unknown sample collection."""
@@ -189,9 +185,7 @@ class ProgressTracker:
         # Update display: every 100 items, at completion, or every 5 seconds
         current_time = time.time()
         if (
-            self.processed % 100 == 0
-            or self.processed == self.total
-            or current_time - self.last_update > 5
+            self.processed % 100 == 0 or self.processed == self.total or current_time - self.last_update > 5
         ):  # Also update every 5 seconds
 
             self.show_progress()
@@ -229,11 +223,7 @@ class ProgressTracker:
     def final_stats(self) -> Dict[str, Any]:
         """Return final statistics."""
         elapsed = time.time() - self.start_time
-        success_rate = (
-            ((self.processed - self.failed) / self.processed * 100)
-            if self.processed > 0
-            else 0
-        )
+        success_rate = ((self.processed - self.failed) / self.processed * 100) if self.processed > 0 else 0
 
         return {
             "total": self.total,

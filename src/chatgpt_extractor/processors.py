@@ -2,12 +2,24 @@
 Message processing components for content extraction and filtering.
 """
 
+import logging
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Dict, List, Optional, Any, Tuple
 
 from .config import WEB_URLS_KEYS
 from .trackers import SchemaEvolutionTracker
+
+logger = logging.getLogger(__name__)
+
+# Broad first-pass URL match over free text. It deliberately cannot express
+# balanced delimiters -- regex does not do that -- so every capture is passed
+# through _trim_unbalanced_delimiters before use.
+URL_IN_TEXT_RE = re.compile(r'https?://[^\s<>"]+')
+
+# Closing delimiter -> its opener. A closer with no matching opener earlier in
+# the URL means the regex ran past the URL's end into surrounding markup.
+_URL_CLOSERS = {")": "(", "]": "["}
 
 
 class MessageProcessor:
@@ -48,6 +60,7 @@ class MessageProcessor:
                 pass  # kept
             else:
                 from .gpt_metadata import extract_dr_report_message
+
                 if extract_dr_report_message(msg) is None:
                     return True
 
@@ -59,11 +72,7 @@ class MessageProcessor:
             return True
 
         # Filter empty assistant placeholder messages
-        if (
-            author.get("role") == "assistant"
-            and content_type == "text"
-            and content.get("parts") == [""]
-        ):
+        if author.get("role") == "assistant" and content_type == "text" and content.get("parts") == [""]:
             return True
 
         return False
@@ -76,9 +85,7 @@ class MessageProcessor:
                     if part.get("content_type") == "image_asset_pointer":
                         metadata = part.get("metadata")
                         # Fixed NoneType bug: Must check metadata exists before 'in' operator
-                        if metadata and (
-                            "dalle" in metadata or "dalle_prompt" in metadata
-                        ):
+                        if metadata and ("dalle" in metadata or "dalle_prompt" in metadata):
                             return True
         return False
 
@@ -94,9 +101,7 @@ class MessageProcessor:
 
         return False
 
-    def extract_message_content(
-        self, msg: Dict[str, Any], conv_id: str
-    ) -> Optional[str]:
+    def extract_message_content(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
         """Extract text content from message based on content_type.
 
         Args:
@@ -412,8 +417,7 @@ class MessageProcessor:
                 add_url(f"https://{domain}")
         elif content_type == "tether_browsing_display":
             if result := content.get("result"):
-                # Critical: use module-level 're' (local import caused 89% of failures)
-                for u in re.findall(r'https?://[^\s<>"]+', str(result)):
+                for u in self._extract_urls_from_text(str(result)):
                     add_url(u)
             if url := content.get("url"):
                 add_url(url)
@@ -446,7 +450,7 @@ class MessageProcessor:
             if isinstance(parts, list):
                 for part in parts:
                     if isinstance(part, str):
-                        for u in re.findall(r'https?://[^\s<>"]+', part):
+                        for u in self._extract_urls_from_text(part):
                             add_url(u)
 
         # ---- Conv-level safe_urls (config-gated, URL-only) ----
@@ -546,26 +550,87 @@ class MessageProcessor:
         return sorted(urls), rich_sources
 
     @staticmethod
+    def _trim_unbalanced_delimiters(url: str) -> str:
+        """Truncate a captured URL at its first unbalanced closing delimiter.
+
+        ``URL_IN_TEXT_RE`` stops only at whitespace, ``<``, ``>`` and ``"``, so
+        a markdown link ``[https://x.com](https://x.com)`` is captured whole as
+        ``https://x.com](https://x.com``. Unconditionally stripping trailing
+        brackets would be wrong: plenty of real URLs contain *balanced*
+        delimiters, notably Wikipedia disambiguation paths
+        (``/wiki/Python_(programming_language)``) and bracketed IPv6 hosts
+        (``http://[::1]:8080/``). Counting depth distinguishes the two -- a
+        closer that has no opener earlier in the same URL was never part of it.
+
+        Args:
+            url: A raw capture from ``URL_IN_TEXT_RE``.
+
+        Returns:
+            The capture truncated at the first unbalanced closer, or unchanged
+            when every delimiter balances.
+        """
+        depth = {"(": 0, "[": 0}
+        for index, char in enumerate(url):
+            if char in depth:
+                depth[char] += 1
+            elif char in _URL_CLOSERS:
+                opener = _URL_CLOSERS[char]
+                if depth[opener] == 0:
+                    return url[:index]
+                depth[opener] -= 1
+        return url
+
+    @classmethod
+    def _extract_urls_from_text(cls, text: str) -> List[str]:
+        """Extract URLs from free text, stopping each at surrounding markup.
+
+        Duplicates are intentionally preserved -- a markdown link contains its
+        URL twice, and the caller collects into a set -- so this stays a pure
+        "what did the text contain" helper.
+        """
+        urls: List[str] = []
+        for raw in URL_IN_TEXT_RE.findall(text):
+            trimmed = cls._trim_unbalanced_delimiters(raw)
+            # A capture that trims back to just the scheme had no host at all
+            # (e.g. the text contained a bare "https://]").
+            if trimmed.rstrip("/") in ("http:", "https:"):
+                continue
+            urls.append(trimmed)
+        return urls
+
+    @staticmethod
     def _normalize_web_url(value: Any) -> Optional[str]:
         """Normalize noisy ChatGPT URL variants for dedupe."""
         if not isinstance(value, str) or not value.startswith(("http://", "https://")):
             return None
 
-        parts = urlsplit(value)
-        query = urlencode(
-            [
-                (key, val)
-                for key, val in parse_qsl(parts.query, keep_blank_values=True)
-                if not (key.lower() == "utm_source" and val.lower() == "chatgpt.com")
-            ],
-            doseq=True,
-        )
+        # The URL-extraction regex (https?://[^\s<>"]+) does not exclude ']'
+        # or ')', so a markdown link written as [https://x.com](https://x.com)
+        # is captured whole as 'https://x.com](https://x.com'. urlsplit raises
+        # ValueError on a netloc holding an unmatched bracket, and that used to
+        # propagate all the way up and abort rendering of the ENTIRE
+        # conversation over one junk capture. Treat unparseable input the way
+        # every caller already treats None -- as "not a usable URL" -- so the
+        # bad capture is dropped and the conversation still renders.
+        try:
+            parts = urlsplit(value)
+            query = urlencode(
+                [
+                    (key, val)
+                    for key, val in parse_qsl(parts.query, keep_blank_values=True)
+                    if not (key.lower() == "utm_source" and val.lower() == "chatgpt.com")
+                ],
+                doseq=True,
+            )
 
-        fragment = parts.fragment
-        if ":~:text=" in fragment:
-            fragment = fragment.split(":~:text=", 1)[0]
+            fragment = parts.fragment
+            if ":~:text=" in fragment:
+                fragment = fragment.split(":~:text=", 1)[0]
 
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
+        except ValueError:
+            logger.debug("Dropping unparseable URL: %r", value[:200])
+            return None
 
     def extract_file_names(self, msg: Dict[str, Any]) -> List[str]:
         """Extract uploaded file names from message attachments."""

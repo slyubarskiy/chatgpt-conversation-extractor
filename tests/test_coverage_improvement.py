@@ -146,9 +146,7 @@ class TestCoverageImprovement:
         assert "def hello():" in result
 
         # Execution output
-        exec_msg = {
-            "content": {"content_type": "execution_output", "text": "Output: 42"}
-        }
+        exec_msg = {"content": {"content_type": "execution_output", "text": "Output: 42"}}
         result = processor.extract_message_content(exec_msg, "test-3")
         assert "```output" in result
         assert "Output: 42" in result
@@ -329,9 +327,7 @@ class TestCoverageImprovement:
         assert processor.extract_file_names({}) == []
 
         # With attachments - needs to be in metadata field of message
-        msg = {
-            "metadata": {"attachments": [{"name": "file1.pdf"}, {"name": "file2.txt"}]}
-        }
+        msg = {"metadata": {"attachments": [{"name": "file1.pdf"}, {"name": "file2.txt"}]}}
         files = processor.extract_file_names(msg)
         assert "file1.pdf" in files
         assert "file2.txt" in files

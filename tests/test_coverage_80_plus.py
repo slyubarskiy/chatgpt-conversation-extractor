@@ -252,9 +252,7 @@ class TestExtractorComprehensive:
 
         # Very long filename
         long_name = "A" * 200
-        sanitized = extractor.sanitize_filename(
-            long_name
-        )  # max_length parameter doesn't exist
+        sanitized = extractor.sanitize_filename(long_name)  # max_length parameter doesn't exist
         assert len(sanitized) <= 100  # Default max length is 100
 
         # Empty string
@@ -354,9 +352,7 @@ class TestMessageProcessorComprehensive:
         assert "Text" in result
 
         # Execution output - wrap in message structure
-        exec_msg = {
-            "content": {"content_type": "execution_output", "text": "Output text"}
-        }
+        exec_msg = {"content": {"content_type": "execution_output", "text": "Output text"}}
         result = processor.extract_message_content(exec_msg, "test-4")
         assert "Output text" in result
 

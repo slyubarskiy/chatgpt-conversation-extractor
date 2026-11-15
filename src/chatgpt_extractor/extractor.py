@@ -48,6 +48,8 @@ class ConversationExtractorV2:
         gpt_names_xlsx: Optional[str] = None,
         web_urls: Optional[Union[str, Dict[str, str]]] = None,
         config_path: Optional[str] = None,
+        *,
+        branch_links: Optional[bool] = None,
     ):
         """Initialize the extractor with multi-format configuration.
 
@@ -78,7 +80,9 @@ class ConversationExtractorV2:
             gpt_metadata: When True (default), enrich output with Custom
                         GPT / per-turn model / plugin signals. Frontmatter
                         gains ``gizmo_id`` (only for Custom GPTs, not
-                        projects), ``gizmo_type``, and ``models_used`` (the
+                        projects), ``gizmo_type``, ``conversation_origin``
+                        (provenance, e.g. ``tpp`` for the desktop app),
+                        and ``models_used`` (the
                         deduped set of per-message ``model_slug`` values).
                         The per-turn italic line gains ``· model_slug``,
                         ``· plugin:<namespace>``, and ``· gpt:<id>`` (the
@@ -116,6 +120,10 @@ class ConversationExtractorV2:
                         ``~/.config/chatgpt_extractor/config.yaml`` if not
                         explicitly supplied. See ``config.py`` for the
                         layering rules.
+            branch_links: Keyword-only flag controlling parent-chat links in
+                        Markdown. None reads the config (default True).
+                        Keyword-only to preserve the existing positional
+                        arguments through config_path.
         """
         self.logger = get_logger(__name__)
         if output_dir is None:
@@ -139,6 +147,7 @@ class ConversationExtractorV2:
         if (
             per_turn_timestamps is None
             or gpt_metadata is None
+            or branch_links is None
             or gpt_names_xlsx is None
             or web_urls is None
         ):
@@ -149,6 +158,8 @@ class ConversationExtractorV2:
             per_turn_timestamps = bool(_cfg.get("per_turn_timestamps", True))
         if gpt_metadata is None:
             gpt_metadata = bool(_cfg.get("gpt_metadata", True))
+        if branch_links is None:
+            branch_links = bool(_cfg.get("branch_links", True))
         if gpt_names_xlsx is None:
             # ``None`` here means "no name resolution" — distinct from
             # the per_turn / gpt_metadata booleans which default True.
@@ -159,11 +170,11 @@ class ConversationExtractorV2:
         # partial dicts + invalid values are resolved / logged / coerced
         # per config._resolve_web_urls.
         from .config import _resolve_web_urls
-        self.web_urls: Dict[str, str] = _resolve_web_urls(
-            web_urls, log=self.logger
-        )
+
+        self.web_urls: Dict[str, str] = _resolve_web_urls(web_urls, log=self.logger)
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
+        self.branch_links = branch_links
         # Load the gpt_id → name map once at construct time; downstream
         # reads (extract_metadata + generate_markdown) reuse the same
         # dict. Missing / bad sidecar → empty dict, no crash.
@@ -172,9 +183,7 @@ class ConversationExtractorV2:
         self._gpt_names: Dict[str, str] = load_gpt_names_xlsx(gpt_names_xlsx)
 
         # Determine output paths based on configuration
-        self.output_paths = self.determine_output_paths(
-            markdown_dir, json_dir, json_file
-        )
+        self.output_paths = self.determine_output_paths(markdown_dir, json_dir, json_file)
 
         # Create necessary directories early for permission validation
         self._create_output_directories()
@@ -256,15 +265,11 @@ class ConversationExtractorV2:
             # Create format-specific directories
             if "markdown_dir" in self.output_paths:
                 self.output_paths["markdown_dir"].mkdir(parents=True, exist_ok=True)
-                self.logger.debug(
-                    f"Created markdown directory: {self.output_paths['markdown_dir']}"
-                )
+                self.logger.debug(f"Created markdown directory: {self.output_paths['markdown_dir']}")
 
             if "json_dir" in self.output_paths:
                 self.output_paths["json_dir"].mkdir(parents=True, exist_ok=True)
-                self.logger.debug(
-                    f"Created JSON directory: {self.output_paths['json_dir']}"
-                )
+                self.logger.debug(f"Created JSON directory: {self.output_paths['json_dir']}")
 
             # For single JSON, ensure parent directory exists
             if "json_file" in self.output_paths:
@@ -280,9 +285,7 @@ class ConversationExtractorV2:
     def extract_all(self) -> None:
         """Main extraction process for all conversations."""
         if self.input_file is None:
-            raise ValueError(
-                "extract_all() requires input_file to be set at construction time"
-            )
+            raise ValueError("extract_all() requires input_file to be set at construction time")
         self.logger.info(f"ChatGPT Conversation Extractor v2.0")
         self.logger.info(f"{'='*60}")
 
@@ -294,9 +297,7 @@ class ConversationExtractorV2:
             self.logger.critical(f"Input file not found: {self.input_file}")
             raise
         except json.JSONDecodeError as e:
-            self.logger.critical(
-                f"Invalid JSON in {self.input_file}: Line {e.lineno}, Column {e.colno}"
-            )
+            self.logger.critical(f"Invalid JSON in {self.input_file}: Line {e.lineno}, Column {e.colno}")
             self.logger.debug(f"JSON error details: {e.msg}")
             raise
         except PermissionError as e:
@@ -309,27 +310,17 @@ class ConversationExtractorV2:
         self.logger.info(f"Found {len(conversations)} conversations to process")
         self.logger.info(f"Output directory: {self.output_dir}")
         if self.output_format in ["markdown", "both"]:
-            self.logger.info(
-                f"Markdown output: {self.output_paths.get('markdown_dir', 'N/A')}"
-            )
+            self.logger.info(f"Markdown output: {self.output_paths.get('markdown_dir', 'N/A')}")
         if self.output_format in ["json", "both"]:
             if self.json_format == "multiple":
-                self.logger.info(
-                    f"JSON output: {self.output_paths.get('json_dir', 'N/A')}"
-                )
+                self.logger.info(f"JSON output: {self.output_paths.get('json_dir', 'N/A')}")
             else:
-                self.logger.info(
-                    f"JSON output: {self.output_paths.get('json_file', 'N/A')}"
-                )
+                self.logger.info(f"JSON output: {self.output_paths.get('json_file', 'N/A')}")
 
         progress = ProgressTracker(total=len(conversations))
 
         # Collect conversations for single JSON if needed
-        json_conversations = (
-            []
-            if (self.output_format in ["json", "both"] and self.json_format == "single")
-            else None
-        )
+        json_conversations = [] if (self.output_format in ["json", "both"] and self.json_format == "single") else None
 
         for conv in conversations:
             try:
@@ -350,9 +341,7 @@ class ConversationExtractorV2:
                     if self.output_format in ["json", "both"]:
                         if self.json_format == "multiple":
                             # Save individual JSON file
-                            file_path = self.save_json_multiple(
-                                json_data, self.output_paths["json_dir"]
-                            )
+                            file_path = self.save_json_multiple(json_data, self.output_paths["json_dir"])
                             # Sync timestamps for individual files
                             if self.preserve_timestamps:
                                 self.synchronize_file_timestamps(file_path, metadata)
@@ -370,9 +359,7 @@ class ConversationExtractorV2:
         # Save single JSON file if needed
         if json_conversations is not None and json_conversations:
             try:
-                self.save_json_single(
-                    json_conversations, self.output_paths["json_file"]
-                )
+                self.save_json_single(json_conversations, self.output_paths["json_file"])
                 self.json_processed = len(json_conversations)
             except Exception as e:
                 self.logger.error(f"Failed to save consolidated JSON: {e}")
@@ -470,15 +457,11 @@ class ConversationExtractorV2:
         # already parse (matches _format_per_turn_ts).
         if create_time := conv.get("create_time"):
             metadata["created"] = (
-                datetime.fromtimestamp(create_time, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z")
+                datetime.fromtimestamp(create_time, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             )
         if update_time := conv.get("update_time"):
             metadata["updated"] = (
-                datetime.fromtimestamp(update_time, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z")
+                datetime.fromtimestamp(update_time, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             )
 
         if model := conv.get("default_model_slug"):
@@ -500,6 +483,7 @@ class ConversationExtractorV2:
         # online_sync inherits via OnlineRenderer wrapping this class.
         if self.gpt_metadata:
             from .gpt_metadata import (
+                extract_conv_branch_meta,
                 extract_conv_deep_research_meta,
                 extract_conv_gpt_meta,
             )
@@ -517,6 +501,11 @@ class ConversationExtractorV2:
             # become greppable even though their artifact body remains
             # absent from the export.
             metadata.update(extract_conv_deep_research_meta(conv))
+            # Branch lineage. Empty dict for non-branch convs, so this is a
+            # safe no-op merge. Only the parent id lands in frontmatter — the
+            # human-readable parent title travels in the rendered link, where
+            # a stale snapshot cannot mislead a machine reader.
+            metadata.update(extract_conv_branch_meta(conv))
 
         return metadata
 
@@ -559,20 +548,14 @@ class ConversationExtractorV2:
             elif content_type == "multimodal_text":
                 # Code outputs in multimodal messages indicate code execution occurred
                 for part in content.get("parts", []):
-                    if (
-                        isinstance(part, dict)
-                        and part.get("content_type") == "code_interpreter_output"
-                    ):
+                    if isinstance(part, dict) and part.get("content_type") == "code_interpreter_output":
                         code_count = stats["code_count"]
                         assert isinstance(code_count, int)
                         stats["code_count"] = code_count + 1
                         break
 
             # Capture user's ChatGPT personalization settings from first system message
-            if (
-                content_type == "user_editable_context"
-                and not stats["custom_instructions"]
-            ):
+            if content_type == "user_editable_context" and not stats["custom_instructions"]:
                 # Custom instructions can be in two places:
                 # 1. In metadata.user_context_message_data (newer format)
                 # 2. In content.text (older format)
@@ -596,10 +579,7 @@ class ConversationExtractorV2:
                     about_model = None
 
                     # Look for the two sections
-                    if (
-                        "The user provided the following information about themselves:"
-                        in text
-                    ):
+                    if "The user provided the following information about themselves:" in text:
                         parts = text.split(
                             "The user provided the additional info about how they would like you to respond:"
                         )
@@ -694,9 +674,7 @@ class ConversationExtractorV2:
 
                 if finish_details := msg.get("finish_details"):
                     if finish_details.get("type"):
-                        self.schema_tracker.track_finish_type(
-                            finish_details["type"], conv_id
-                        )
+                        self.schema_tracker.track_finish_type(finish_details["type"], conv_id)
 
                 messages.append(msg)
 
@@ -714,11 +692,7 @@ class ConversationExtractorV2:
         fix; a previous version of frontmatter used naive local wall time
         (mislabelled ``"Z"``), and this divergence has been removed.
         """
-        return (
-            datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
+        return datetime.fromtimestamp(unix_seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
     def process_messages(
         self, messages: List[Dict[str, Any]], conv_id: str, conv_data: Dict[str, Any]
@@ -743,13 +717,8 @@ class ConversationExtractorV2:
             author_role = msg.get("author", {}).get("role")
 
             if author_role == "system":
-                if (
-                    not system_prompt_added
-                    and self.message_processor.is_user_system_message(msg)
-                ):
-                    content = self.message_processor.extract_message_content(
-                        msg, conv_id
-                    )
+                if not system_prompt_added and self.message_processor.is_user_system_message(msg):
+                    content = self.message_processor.extract_message_content(msg, conv_id)
                     if content:
                         processed.append({"role": "system", "content": content})
                         system_prompt_added = True
@@ -789,13 +758,25 @@ class ConversationExtractorV2:
 
                     # Single-pass URL walk — one traversal per message
                     # halves metadata-scan cost on large exports.
-                    urls, web_sources = self.message_processor._walk_url_sources(
-                        msg, conv_data, self.web_urls
-                    )
+                    urls, web_sources = self.message_processor._walk_url_sources(msg, conv_data, self.web_urls)
                     if urls:
                         msg_data["web_urls"] = urls
                     if web_sources:
                         msg_data["web_sources"] = web_sources
+
+                    # Branch lineage, stashed unconditionally like the GPT
+                    # signals above — the cost is a dict lookup and the
+                    # render-time flag decides whether it reaches the output.
+                    # ``metadata`` is guarded because real exports carry
+                    # messages with metadata=None.
+                    _bmeta = msg.get("metadata") or {}
+                    if _parent := _bmeta.get("branching_from_conversation_id"):
+                        msg_data["branched_from"] = {
+                            "id": _parent,
+                            # Fall back to the id so the rendered link never
+                            # degenerates to an empty label.
+                            "title": (_bmeta.get("branching_from_conversation_title") or _parent),
+                        }
 
                     files = self.message_processor.extract_file_names(msg)
                     if files:
@@ -812,9 +793,7 @@ class ConversationExtractorV2:
             elif author_role == "tool":
                 content = msg.get("content", {})
                 if self.message_processor._contains_dalle_image(content):
-                    extracted = self.message_processor.extract_message_content(
-                        msg, conv_id
-                    )
+                    extracted = self.message_processor.extract_message_content(msg, conv_id)
                     if extracted:
                         tool_msg_data = {"role": "assistant", "content": extracted}
                         if (ct := msg.get("create_time")) is not None:
@@ -840,12 +819,8 @@ class ConversationExtractorV2:
 
                     report_msg = extract_dr_report_message(msg)
                     if report_msg:
-                        rm_parts = (
-                            (report_msg.get("content") or {}).get("parts") or []
-                        )
-                        text = "\n\n".join(
-                            p for p in rm_parts if isinstance(p, str) and p
-                        )
+                        rm_parts = (report_msg.get("content") or {}).get("parts") or []
+                        text = "\n\n".join(p for p in rm_parts if isinstance(p, str) and p)
                         if text:
                             dr_data: Dict[str, Any] = {
                                 "role": "assistant",
@@ -864,21 +839,20 @@ class ConversationExtractorV2:
                             # Citations from the research live on the
                             # report_message — preserve via the standard
                             # MessageProcessor helper.
-                            citations = self.message_processor.extract_citations(
-                                report_msg
-                            )
+                            citations = self.message_processor.extract_citations(report_msg)
                             if citations:
                                 dr_data["citations"] = citations
                             processed.append(dr_data)
 
         return processed
 
-    def merge_continuations(
-        self, messages: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    def merge_continuations(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge consecutive assistant messages that are continuations.
 
         Validates messages are truly consecutive using graph indices when available.
+        A merged reply keeps its first segment's ``create_time`` (the rendered
+        stamp) and gains ``last_segment_time``, the latest segment time, when
+        any segment has one. Unmerged messages are returned as they came.
         """
         if not messages:
             return messages
@@ -894,11 +868,7 @@ class ConversationExtractorV2:
                 i += 1
                 continue
 
-            if (
-                i + 1 < len(messages)
-                and current["role"] == "assistant"
-                and messages[i + 1]["role"] == "assistant"
-            ):
+            if i + 1 < len(messages) and current["role"] == "assistant" and messages[i + 1]["role"] == "assistant":
 
                 combined_content = current["content"]
 
@@ -922,6 +892,13 @@ class ConversationExtractorV2:
                             current["web_sources"] = []
                         current["web_sources"].extend(messages[j]["web_sources"])
 
+                    # Branch lineage can sit on any segment of a merged reply,
+                    # not just the first. There is exactly one marker per
+                    # conversation, so the first one found wins and later
+                    # segments cannot contradict it.
+                    if "branched_from" in messages[j] and "branched_from" not in current:
+                        current["branched_from"] = messages[j]["branched_from"]
+
                     j += 1
 
                 merged_msg = {"role": "assistant", "content": combined_content}
@@ -932,12 +909,31 @@ class ConversationExtractorV2:
                 if "create_time" in current:
                     merged_msg["create_time"] = current["create_time"]
 
+                # ...and the latest segment's as the time it finished. Only
+                # the start is rendered; the finish is kept for callers that
+                # date a file by its last turn, which the start can
+                # understate by months (a scheduled task appends one segment
+                # per run). Latest rather than last because segment order is
+                # graph order, not clock order. Neither output reads this key.
+                segment_times = [m["create_time"] for m in messages[i:j] if m.get("create_time") is not None]
+                if segment_times:
+                    merged_msg["last_segment_time"] = max(segment_times)
+
                 # Per-turn GPT signals inherit from the earliest segment too
                 # (the assistant's reply may continue across segments but the
                 # model / gizmo / plugin context applies to the whole reply).
                 for k in ("model_slug", "gizmo_id", "plugin_namespace"):
                     if k in current:
                         merged_msg[k] = current[k]
+
+                # merged_msg is built from scratch, so every key that must
+                # survive a merge has to be copied explicitly. Omitting this
+                # silently dropped the branch footer for any conversation
+                # whose carrier fell inside a merged run, while the
+                # frontmatter id still appeared (it comes from a separate
+                # conversation-level scan) -- a confusing half-working state.
+                if "branched_from" in current:
+                    merged_msg["branched_from"] = current["branched_from"]
 
                 if "citations" in current:
                     merged_msg["citations"] = current["citations"]
@@ -964,9 +960,7 @@ class ConversationExtractorV2:
 
         return merged
 
-    def generate_markdown(
-        self, metadata: Dict[str, Any], messages: List[Dict[str, Any]]
-    ) -> str:
+    def generate_markdown(self, metadata: Dict[str, Any], messages: List[Dict[str, Any]]) -> str:
         """Generate markdown content with YAML frontmatter for conversation."""
         lines = []
 
@@ -1007,11 +1001,7 @@ class ConversationExtractorV2:
             # get exactly the pre-config output. System messages are skipped
             # because the system prompt's "send time" is conceptually the
             # custom-instructions configuration time, not a chat moment.
-            if (
-                self.per_turn_timestamps
-                and role != "system"
-                and (ct := msg.get("create_time")) is not None
-            ):
+            if self.per_turn_timestamps and role != "system" and (ct := msg.get("create_time")) is not None:
                 # GPT-metadata suffix piggybacks on the per-turn timestamp
                 # line: " · model_slug · plugin:<ns> · gpt:<name-or-id>"
                 # where any absent segment is suppressed. gpt:<...> only
@@ -1091,6 +1081,26 @@ class ConversationExtractorV2:
                     for url in remaining:
                         lines.append(f"- {url}")
 
+            # Branch lineage footer — the last block on the message, because
+            # it describes conversation *structure* rather than this message's
+            # content or sources. It renders on the message the user branched
+            # FROM (the last turn inherited from the parent), which is where
+            # the divergence actually happens.
+            #
+            # A chatgpt.com URL is used rather than an Obsidian wiki-link
+            # because the parent's vault filename is not knowable here: it
+            # depends on collision suffixing, filename sanitisation and later
+            # renames, all decided outside this function. The URL survives all
+            # three — only the link text can age. The bare id repeats on the
+            # same line so downstream tooling can key on it without parsing
+            # the markdown link.
+            if self.branch_links and (branched := msg.get("branched_from")):
+                lines.append("")
+                lines.append(
+                    f"**Branched from:** [{branched['title']}]"
+                    f"(https://chatgpt.com/c/{branched['id']}) `{branched['id']}`"
+                )
+
             lines.append("")
 
         return "\n".join(lines)
@@ -1120,14 +1130,10 @@ class ConversationExtractorV2:
             try:
                 project_dir.mkdir(exist_ok=True)
             except PermissionError:
-                self.logger.error(
-                    f"Permission denied creating project directory {project_dir}"
-                )
+                self.logger.error(f"Permission denied creating project directory {project_dir}")
                 raise
             except Exception as e:
-                log_exception(
-                    self.logger, e, f"creating project directory {project_dir}"
-                )
+                log_exception(self.logger, e, f"creating project directory {project_dir}")
                 raise
             file_path = project_dir / f"{safe_title}.md"
         else:
@@ -1167,7 +1173,7 @@ class ConversationExtractorV2:
         # Handle None title
         if title is None:
             title = "untitled"
-        
+
         # Windows/Unix forbidden characters: <>:"/\|?*
         safe_title = re.sub(r'[<>:"/\\|?*]', "_", title)
 
@@ -1185,9 +1191,7 @@ class ConversationExtractorV2:
 
         return safe_title
 
-    def generate_json_data(
-        self, metadata: Dict[str, Any], messages: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def generate_json_data(self, metadata: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Convert conversation data to exportable JSON structure.
 
         Strips internal tracking fields (_graph_index) and normalizes
@@ -1212,11 +1216,7 @@ class ConversationExtractorV2:
             "project_id": metadata.get("project_id"),
             "total_messages": metadata.get("total_messages", len(messages)),
             "code_messages": metadata.get("code_messages", 0),
-            "message_types": (
-                metadata.get("message_types", "").split(", ")
-                if metadata.get("message_types")
-                else []
-            ),
+            "message_types": (metadata.get("message_types", "").split(", ") if metadata.get("message_types") else []),
             "starred": metadata.get("starred", False),
             "archived": metadata.get("archived", False),
             "chat_url": metadata.get("chat_url"),
@@ -1234,6 +1234,8 @@ class ConversationExtractorV2:
                 "gpt_name",
                 "deep_research",
                 "deep_research_version",
+                "conversation_origin",
+                "branched_from_id",
             ):
                 if k in metadata:
                     json_data[k] = metadata[k]
@@ -1250,11 +1252,7 @@ class ConversationExtractorV2:
             # the source carries it AND the per_turn_timestamps flag is on;
             # otherwise null, matching the legacy field shape.
             ct = msg.get("create_time")
-            ts_str = (
-                self._format_per_turn_ts(ct)
-                if (self.per_turn_timestamps and ct is not None)
-                else None
-            )
+            ts_str = self._format_per_turn_ts(ct) if (self.per_turn_timestamps and ct is not None) else None
             json_msg = {
                 "role": msg.get("role"),
                 "content": msg.get("content", ""),
@@ -1288,9 +1286,7 @@ class ConversationExtractorV2:
 
         return json_data
 
-    def save_json_single(
-        self, conversations: List[Dict[str, Any]], output_path: Path
-    ) -> Path:
+    def save_json_single(self, conversations: List[Dict[str, Any]], output_path: Path) -> Path:
         """Save all conversations to a single consolidated JSON file.
 
         Single JSON uses processing timestamps (not conversation timestamps)
@@ -1418,9 +1414,7 @@ class ConversationExtractorV2:
             self.logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
             return None
 
-    def synchronize_file_timestamps(
-        self, file_path: Path, metadata: Dict[str, Any]
-    ) -> None:
+    def synchronize_file_timestamps(self, file_path: Path, metadata: Dict[str, Any]) -> None:
         """Set file creation and modification times from conversation metadata.
 
         Creation time setting only supported on Windows/macOS due to
@@ -1437,9 +1431,7 @@ class ConversationExtractorV2:
 
         try:
             created_ts = self.parse_iso_timestamp(metadata.get("created"))
-            updated_ts = self.parse_iso_timestamp(
-                metadata.get("updated", metadata.get("created"))
-            )
+            updated_ts = self.parse_iso_timestamp(metadata.get("updated", metadata.get("created")))
 
             if not created_ts or not updated_ts:
                 return  # Skip if timestamps missing or invalid
@@ -1552,9 +1544,7 @@ class ConversationExtractorV2:
         self.logger.info("EXTRACTION COMPLETE!")
         self.logger.info("=" * 60)
         self.logger.info(f"  Total conversations: {stats['total']}")
-        self.logger.info(
-            f"  Successfully processed: {stats['processed'] - stats['failed']}"
-        )
+        self.logger.info(f"  Successfully processed: {stats['processed'] - stats['failed']}")
         self.logger.info(f"  Failed: {stats['failed']}")
         self.logger.info(f"  Success rate: {stats['success_rate']:.1f}%")
 
@@ -1564,9 +1554,7 @@ class ConversationExtractorV2:
         if self.output_format in ["json", "both"]:
             self.logger.info(f"  JSON files created: {self.json_processed}")
         if self.preserve_timestamps and self.timestamp_sync_failures > 0:
-            self.logger.info(
-                f"  Timestamp sync failures: {self.timestamp_sync_failures}"
-            )
+            self.logger.info(f"  Timestamp sync failures: {self.timestamp_sync_failures}")
 
         self.logger.info(f"  Time elapsed: {stats['elapsed_time']:.1f}s")
         self.logger.info(f"  Processing rate: {stats['rate']:.1f} conv/s")
@@ -1585,9 +1573,7 @@ class ConversationExtractorV2:
         except Exception as e:
             self.logger.warning(f"Failed to save schema report: {e}")
 
-    def log_conversion_failure(
-        self, conv: Dict[str, Any], conv_id: str, title: str, error: Exception
-    ) -> None:
+    def log_conversion_failure(self, conv: Dict[str, Any], conv_id: str, title: str, error: Exception) -> None:
         """Log detailed information about conversion failure for analysis."""
         import traceback
 
@@ -1700,9 +1686,7 @@ class ConversationExtractorV2:
                     categories[fail["category"]] += 1
 
                 f.write("FAILURE CATEGORIES:\n")
-                for cat, count in sorted(
-                    categories.items(), key=lambda x: x[1], reverse=True
-                ):
+                for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
                     f.write(f"  {cat}: {count}\n")
                 f.write("\n")
 
@@ -1724,19 +1708,13 @@ class ConversationExtractorV2:
                     f.write(f"Error: {fail['error_message']}\n")
 
                     if fail["structural_issues"]:
-                        f.write(
-                            f"Structural Issues: {', '.join(fail['structural_issues'])}\n"
-                        )
+                        f.write(f"Structural Issues: {', '.join(fail['structural_issues'])}\n")
 
                     if fail["problematic_nodes"]:
                         f.write(f"\nProblematic Nodes (sample):\n")
                         for node in fail["problematic_nodes"][:3]:
-                            f.write(
-                                f"  - Node {node['node_id']}: role={node.get('role')}, "
-                            )
-                            f.write(
-                                f"content_type={node.get('content_type')}, issue={node.get('issue')}\n"
-                            )
+                            f.write(f"  - Node {node['node_id']}: role={node.get('role')}, ")
+                            f.write(f"content_type={node.get('content_type')}, issue={node.get('issue')}\n")
 
                     if fail["trace_snippet"]:
                         f.write(f"\nTrace: {fail['trace_snippet']}\n")

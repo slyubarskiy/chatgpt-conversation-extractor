@@ -57,9 +57,7 @@ def validate_cli_arguments(args: argparse.Namespace) -> None:
     # Ensure format selection aligns with output type to prevent configuration errors
     # Only validate if JSON output is actually being used (via json_dir or json_file)
     if (args.json_dir or args.json_file) and args.output_format == "markdown":
-        logger.error(
-            "JSON output options can only be used when --output-format includes 'json' or 'both'"
-        )
+        logger.error("JSON output options can only be used when --output-format includes 'json' or 'both'")
         sys.exit(1)
 
     # Single file path only makes sense for consolidated output, not individual files
@@ -138,9 +136,7 @@ Migration note for v3.1:
         help="Override JSON output directory for multiple format (bypasses json/ subdirectory creation)",
     )
 
-    parser.add_argument(
-        "--json-file", help="Override JSON output file path for single format"
-    )
+    parser.add_argument("--json-file", help="Override JSON output file path for single format")
 
     # Timestamp synchronization
     parser.add_argument(
@@ -215,9 +211,7 @@ Migration note for v3.1:
 
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
-    parser.add_argument(
-        "--version", action="version", version="ChatGPT Conversation Extractor v3.1"
-    )
+    parser.add_argument("--version", action="version", version="ChatGPT Conversation Extractor v3.1")
 
     args = parser.parse_args()
 

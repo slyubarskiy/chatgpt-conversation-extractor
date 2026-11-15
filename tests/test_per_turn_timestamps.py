@@ -35,6 +35,7 @@ from chatgpt_extractor.extractor import ConversationExtractorV2
 # config.load_config
 # --------------------------------------------------------------------------- #
 
+
 def test_load_config_returns_defaults_when_no_file_found(_isolated_config_env):
     cfg = config_mod.load_config()
     assert cfg == config_mod.DEFAULTS
@@ -66,9 +67,7 @@ def test_load_config_malformed_yaml_silently_falls_back(tmp_path, _isolated_conf
     assert cfg == config_mod.DEFAULTS
 
 
-def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(
-    tmp_path, _isolated_config_env
-):
+def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(tmp_path, _isolated_config_env):
     cfg = config_mod.load_config(str(tmp_path / "does_not_exist.yaml"))
     assert cfg == config_mod.DEFAULTS
 
@@ -76,6 +75,7 @@ def test_load_config_explicit_path_pointing_to_missing_file_returns_defaults(
 # --------------------------------------------------------------------------- #
 # Extractor — per-turn timestamps in markdown output
 # --------------------------------------------------------------------------- #
+
 
 @pytest.fixture
 def _extractor_args(tmp_path):
@@ -116,9 +116,7 @@ def test_extractor_emits_per_turn_timestamps_by_default(_extractor_args, _isolat
 
 
 def test_extractor_no_per_turn_timestamps_matches_legacy(_extractor_args, _isolated_config_env):
-    ext = ConversationExtractorV2(
-        per_turn_timestamps=False, **_extractor_args
-    )
+    ext = ConversationExtractorV2(per_turn_timestamps=False, **_extractor_args)
     md = ext.generate_markdown(_metadata(), _msgs_with_timestamps())
     # Headings present; no italic timestamps anywhere.
     assert "## User" in md
@@ -126,9 +124,7 @@ def test_extractor_no_per_turn_timestamps_matches_legacy(_extractor_args, _isola
     assert "*2024-05-25T" not in md
 
 
-def test_extractor_constructor_arg_overrides_config_file(
-    tmp_path, _extractor_args, _isolated_config_env
-):
+def test_extractor_constructor_arg_overrides_config_file(tmp_path, _extractor_args, _isolated_config_env):
     cfg_file = tmp_path / "off.yaml"
     cfg_file.write_text("per_turn_timestamps: false\n", encoding="utf-8")
     # Config says False, explicit constructor arg says True → True wins.
@@ -141,9 +137,7 @@ def test_extractor_constructor_arg_overrides_config_file(
     assert "*2024-05-25T12:00:00Z*" in md
 
 
-def test_extractor_config_file_used_when_constructor_arg_is_none(
-    tmp_path, _extractor_args, _isolated_config_env
-):
+def test_extractor_config_file_used_when_constructor_arg_is_none(tmp_path, _extractor_args, _isolated_config_env):
     cfg_file = tmp_path / "off.yaml"
     cfg_file.write_text("per_turn_timestamps: false\n", encoding="utf-8")
     ext = ConversationExtractorV2(
@@ -175,6 +169,7 @@ def test_extractor_skips_timestamp_on_system_message(_extractor_args, _isolated_
 # Extractor — JSON output bug fix
 # --------------------------------------------------------------------------- #
 
+
 def test_json_output_timestamp_uses_create_time(_extractor_args, _isolated_config_env):
     ext = ConversationExtractorV2(output_format="json", **_extractor_args)
     data = ext.generate_json_data(_metadata(), _msgs_with_timestamps())
@@ -185,9 +180,7 @@ def test_json_output_timestamp_uses_create_time(_extractor_args, _isolated_confi
 
 
 def test_json_output_timestamp_null_when_disabled(_extractor_args, _isolated_config_env):
-    ext = ConversationExtractorV2(
-        output_format="json", per_turn_timestamps=False, **_extractor_args
-    )
+    ext = ConversationExtractorV2(output_format="json", per_turn_timestamps=False, **_extractor_args)
     data = ext.generate_json_data(_metadata(), _msgs_with_timestamps())
     msgs = data["messages"]
     assert msgs[0]["timestamp"] is None
@@ -198,6 +191,7 @@ def test_json_output_timestamp_null_when_disabled(_extractor_args, _isolated_con
 # process_messages + merge_continuations propagate create_time
 # --------------------------------------------------------------------------- #
 
+
 def _conv_with_timestamps():
     """Minimal mapping-graph conversation with user + assistant + 2 assistant
     continuation messages, each carrying create_time."""
@@ -207,29 +201,46 @@ def _conv_with_timestamps():
         "create_time": 1716638000.0,
         "update_time": 1716638600.0,
         "mapping": {
-            "n0": {"id": "n0", "parent": None, "children": ["n1"],
-                   "message": None},
-            "n1": {"id": "n1", "parent": "n0", "children": ["n2"],
-                   "message": {
-                       "id": "n1", "author": {"role": "user"},
-                       "content": {"content_type": "text", "parts": ["Q"]},
-                       "weight": 1.0, "create_time": 1716638400.0,
-                       "update_time": 1716638400.0,
-                   }},
-            "n2": {"id": "n2", "parent": "n1", "children": ["n3"],
-                   "message": {
-                       "id": "n2", "author": {"role": "assistant"},
-                       "content": {"content_type": "text", "parts": ["A1"]},
-                       "weight": 1.0, "create_time": 1716638460.0,
-                       "update_time": 1716638460.0,
-                   }},
-            "n3": {"id": "n3", "parent": "n2", "children": [],
-                   "message": {
-                       "id": "n3", "author": {"role": "assistant"},
-                       "content": {"content_type": "text", "parts": ["A2"]},
-                       "weight": 1.0, "create_time": 1716638480.0,
-                       "update_time": 1716638480.0,
-                   }},
+            "n0": {"id": "n0", "parent": None, "children": ["n1"], "message": None},
+            "n1": {
+                "id": "n1",
+                "parent": "n0",
+                "children": ["n2"],
+                "message": {
+                    "id": "n1",
+                    "author": {"role": "user"},
+                    "content": {"content_type": "text", "parts": ["Q"]},
+                    "weight": 1.0,
+                    "create_time": 1716638400.0,
+                    "update_time": 1716638400.0,
+                },
+            },
+            "n2": {
+                "id": "n2",
+                "parent": "n1",
+                "children": ["n3"],
+                "message": {
+                    "id": "n2",
+                    "author": {"role": "assistant"},
+                    "content": {"content_type": "text", "parts": ["A1"]},
+                    "weight": 1.0,
+                    "create_time": 1716638460.0,
+                    "update_time": 1716638460.0,
+                },
+            },
+            "n3": {
+                "id": "n3",
+                "parent": "n2",
+                "children": [],
+                "message": {
+                    "id": "n3",
+                    "author": {"role": "assistant"},
+                    "content": {"content_type": "text", "parts": ["A2"]},
+                    "weight": 1.0,
+                    "create_time": 1716638480.0,
+                    "update_time": 1716638480.0,
+                },
+            },
         },
         "current_node": "n3",
     }
@@ -247,9 +258,7 @@ def test_process_messages_propagates_create_time(_extractor_args, _isolated_conf
     assert asst_msgs[0].get("create_time") == 1716638460.0
 
 
-def test_merge_continuations_uses_first_segments_create_time(
-    _extractor_args, _isolated_config_env
-):
+def test_merge_continuations_uses_first_segments_create_time(_extractor_args, _isolated_config_env):
     ext = ConversationExtractorV2(**_extractor_args)
     msgs = [
         {"role": "user", "content": "Q", "create_time": 1716638400.0},
@@ -262,3 +271,66 @@ def test_merge_continuations_uses_first_segments_create_time(
     # Earliest assistant segment's start time — when the response began.
     assert assistant.get("create_time") == 1716638460.0
     assert "A1" in assistant["content"] and "A2" in assistant["content"]
+
+
+@pytest.mark.parametrize(
+    "segment_times, expected",
+    [
+        # The usual case: the reply finished with its last segment.
+        ([1716638460.0, 1716638480.0, 1716638900.0], 1716638900.0),
+        # A segment without a source time does not hide the others.
+        ([1716638460.0, 1716638480.0, None], 1716638480.0),
+        # Latest, not last: segment order follows the graph, not the clock.
+        ([1716638460.0, 1716638990.0, 1716638480.0], 1716638990.0),
+    ],
+)
+def test_merge_continuations_records_the_latest_segment_time(
+    _extractor_args, _isolated_config_env, segment_times, expected
+):
+    """A merged reply keeps when it finished, beside when it began.
+
+    Callers that date a note by its last turn need the finish; the first
+    segment's ``create_time`` can be hours or months earlier (a scheduled
+    task appends a segment per run).
+    """
+    ext = ConversationExtractorV2(**_extractor_args)
+    msgs = [{"role": "user", "content": "Q", "create_time": 1716638400.0}]
+    for n, ct in enumerate(segment_times):
+        segment = {"role": "assistant", "content": f"A{n}"}
+        if ct is not None:
+            segment["create_time"] = ct
+        msgs.append(segment)
+    assistant = ext.merge_continuations(msgs)[-1]
+    assert assistant["create_time"] == 1716638460.0
+    assert assistant["last_segment_time"] == expected
+
+
+def test_merge_continuations_omits_last_segment_time_without_any_time(_extractor_args, _isolated_config_env):
+    ext = ConversationExtractorV2(**_extractor_args)
+    msgs = [
+        {"role": "user", "content": "Q"},
+        {"role": "assistant", "content": "A1"},
+        {"role": "assistant", "content": "A2"},
+    ]
+    assert "last_segment_time" not in ext.merge_continuations(msgs)[-1]
+
+
+def test_last_segment_time_does_not_change_rendered_output(_extractor_args, _isolated_config_env):
+    """The new key is bookkeeping only: markdown and JSON stay byte-identical.
+
+    Downstream vault diffs compare notes byte for byte, so a key that leaked
+    into either output would show up as a change in every merged reply.
+    """
+    ext = ConversationExtractorV2(output_format="both", **_extractor_args)
+    merged = ext.merge_continuations(
+        [
+            {"role": "user", "content": "Q", "create_time": 1716638400.0},
+            {"role": "assistant", "content": "A1", "create_time": 1716638460.0},
+            {"role": "assistant", "content": "A2", "create_time": 1716638480.0},
+        ]
+    )
+    stripped = [{k: v for k, v in m.items() if k != "last_segment_time"} for m in merged]
+    assert ext.generate_markdown(_metadata(), merged) == ext.generate_markdown(_metadata(), stripped)
+    assert json.dumps(ext.generate_json_data(_metadata(), merged)) == json.dumps(
+        ext.generate_json_data(_metadata(), stripped)
+    )

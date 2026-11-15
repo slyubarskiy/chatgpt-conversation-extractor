@@ -61,9 +61,10 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
               collection; missing or non-dict mapping is tolerated.
 
     Returns:
-        Dict with any subset of ``gizmo_id``, ``gizmo_type``, ``models_used``.
-        Empty dict if none of the signals are present (default ChatGPT
-        conversation with no exotic per-turn models recorded).
+        Dict with any subset of ``gizmo_id``, ``gizmo_type``,
+        ``models_used``, ``conversation_origin``. Empty dict if none of
+        the signals are present (default ChatGPT conversation with no
+        exotic per-turn models recorded).
     """
     out: Dict[str, Any] = {}
 
@@ -97,6 +98,26 @@ def extract_conv_gpt_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
                 models_seen.add(slug)
     if models_seen:
         out["models_used"] = sorted(models_seen)
+
+    # Provenance: where the conversation was created. Observed values so
+    # far are ``"tpp"`` (third-party platform — the desktop app, which
+    # runs "Work Mode" with local processing) and ``None`` for browser
+    # conversations. Emitted verbatim as an opaque string rather than
+    # validated against an enum: OpenAI adds values without notice, and
+    # an unknown value is still more useful than a silently dropped one.
+    #
+    # Worth capturing because it is the ONLY reliable discriminator for
+    # locally-processed conversations. The per-message ``model_slug``
+    # ``-wm`` suffix correlates today (8/8 in the 2026-08-26 batch) but
+    # is a naming convention, not a contract.
+    #
+    # Lives here, under the ``gpt_metadata`` flag, rather than as a
+    # fourth config knob: its demonstrated use is Work Mode
+    # identification, read together with ``models_used``, and
+    # ``--no-gpt-metadata`` keeps its promise of pre-feature output.
+    origin = conv.get("conversation_origin")
+    if origin:
+        out["conversation_origin"] = origin
 
     return out
 
@@ -233,6 +254,50 @@ def extract_conv_deep_research_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def extract_conv_branch_meta(conv: Dict[str, Any]) -> Dict[str, Any]:
+    """Detect whether this conversation was branched from another one.
+
+    ChatGPT records branch lineage **per-message only** — it never reaches the
+    conversation-level fields. When a chat is branched, the thread up to the
+    branch point is copied and the message the user branched *from* is tagged
+    with ``metadata.branching_from_conversation_id`` (plus ``_title`` and
+    ``_owner``). That is the same data the web UI renders as a hyperlink back
+    to the parent chat.
+
+    Verified across 202 real branch conversations (2026-09-10) that **exactly
+    one** message carries the marker, so the first hit is authoritative and no
+    tie-breaking is required.
+
+    Only the id is returned. The sibling ``branching_from_conversation_title``
+    is a snapshot taken at branch time and was stale for 43 of those 202 (21 %)
+    — parents get renamed, and vault filenames additionally drift through
+    collision suffixing and character sanitisation. Surfacing a stale value in
+    a machine-readable field would invite callers to key on it; the human-facing
+    title travels in the rendered link instead, where the URL guarantees the
+    target regardless.
+
+    Args:
+        conv: Raw conversation dict (must contain ``mapping`` to detect
+              anything; a missing or empty mapping is treated as "not a
+              branch" rather than an error).
+
+    Returns:
+        ``{"branched_from_id": <parent conversation id>}`` for a branch, or an
+        empty dict otherwise — a safe no-op merge, matching the contract of
+        :func:`extract_conv_deep_research_meta`.
+    """
+    for node in (conv.get("mapping") or {}).values():
+        # Assume nothing: real exports contain mapping nodes with no message
+        # (the root) and messages whose metadata is None. Both raise TypeError
+        # under a bare ``in`` check — the project's documented NoneType
+        # failure mode, historically 10% of all extraction failures.
+        message = (node or {}).get("message") or {}
+        metadata = message.get("metadata") or {}
+        if parent_id := metadata.get("branching_from_conversation_id"):
+            return {"branched_from_id": parent_id}
+    return {}
+
+
 def extract_msg_gpt_signals(api_msg: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """Pull per-message GPT signals (``model_slug``, ``gizmo_id``, plugin namespace).
 
@@ -321,11 +386,7 @@ def format_per_turn_suffix(
     # skipping those keeps the per-turn line about actual Custom GPT
     # @mentions only. Real @mentions carry a Custom GPT id (g-XXXX) and
     # are still emitted.
-    if (
-        msg_gizmo
-        and msg_gizmo != conv_default_gizmo_id
-        and not msg_gizmo.startswith("g-p-")
-    ):
+    if msg_gizmo and msg_gizmo != conv_default_gizmo_id and not msg_gizmo.startswith("g-p-"):
         # Substitute the human-readable name when available; fall back to
         # the raw id so the @mention signal is preserved even when the
         # sidecar hasn't been populated yet.
@@ -391,8 +452,7 @@ def load_gpt_names_xlsx(path: Optional[str | Path]) -> Dict[str, str]:
         wb.close()
     except Exception as exc:  # noqa: BLE001 — sidecar must never break extractor
         logger.warning(
-            "GPT_Names.xlsx at %s could not be read (%s); proceeding without "
-            "name resolution",
+            "GPT_Names.xlsx at %s could not be read (%s); proceeding without " "name resolution",
             p,
             exc,
         )

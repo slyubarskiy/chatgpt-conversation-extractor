@@ -53,9 +53,7 @@ class TestPerformance:
                             "author": {"role": "assistant"},
                             "content": {
                                 "content_type": "text",
-                                "parts": [
-                                    f"Answer {i}: Here are some tips for learning Python..."
-                                ],
+                                "parts": [f"Answer {i}: Here are some tips for learning Python..."],
                             },
                         },
                     },
@@ -90,15 +88,11 @@ class TestPerformance:
             elapsed_time = time.time() - start_time
             rate = len(conversations) / elapsed_time
 
-            print(
-                f"\nProcessed {len(conversations)} conversations in {elapsed_time:.2f}s"
-            )
+            print(f"\nProcessed {len(conversations)} conversations in {elapsed_time:.2f}s")
             print(f"Rate: {rate:.1f} conversations/second")
 
             # Assert minimum performance (at least 30 conv/s for small datasets)
-            assert (
-                rate >= 30
-            ), f"Performance too slow: {rate:.1f} conv/s (expected >= 30)"
+            assert rate >= 30, f"Performance too slow: {rate:.1f} conv/s (expected >= 30)"
 
     @pytest.mark.performance
     @pytest.mark.slow
@@ -135,15 +129,11 @@ class TestPerformance:
             elapsed_time = time.time() - start_time
             rate = len(conversations) / elapsed_time
 
-            print(
-                f"\nProcessed {len(conversations)} conversations in {elapsed_time:.2f}s"
-            )
+            print(f"\nProcessed {len(conversations)} conversations in {elapsed_time:.2f}s")
             print(f"Rate: {rate:.1f} conversations/second")
 
             # Assert minimum performance (at least 50 conv/s for simple conversations)
-            assert (
-                rate >= 50
-            ), f"Performance too slow: {rate:.1f} conv/s (expected >= 50)"
+            assert rate >= 50, f"Performance too slow: {rate:.1f} conv/s (expected >= 50)"
 
             # Check all files were created in md/ subdirectory
             md_dir = output_dir / "md"
@@ -189,6 +179,4 @@ class TestPerformance:
             print(f"\nMemory usage increased by {memory_increase:.1f} MB")
 
             # Assert memory usage is reasonable (less than 500MB increase for 500 conversations)
-            assert (
-                memory_increase < 500
-            ), f"Memory usage too high: {memory_increase:.1f} MB"
+            assert memory_increase < 500, f"Memory usage too high: {memory_increase:.1f} MB"
