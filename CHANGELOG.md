@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Project-associated Library files appear in each matching project's chats
+  under **Project files**, and as conversation-level `project_assets` in JSON,
+  including resources not attached to an individual message. Project and
+  Custom GPT file associations remain separate.
 - Manifest-aware directory input with legacy single-file and numbered-shard
   fallbacks, shared by the CLI and Makefile. All shards contribute to one
   extraction run and consolidated JSON output. Missing manifest shards fail

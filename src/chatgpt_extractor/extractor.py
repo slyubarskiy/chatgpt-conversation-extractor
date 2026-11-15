@@ -546,6 +546,10 @@ class ConversationExtractorV2:
         if project_id := conv.get("conversation_template_id"):
             if project_id.startswith("g-p-"):
                 metadata["project_id"] = project_id
+                if self.asset_manager:
+                    project_assets = self.asset_manager.for_project(project_id)
+                    if project_assets:
+                        metadata["project_assets"] = project_assets
 
         # Custom GPT / per-turn model / models_used. Module-isolated so the
         # extractor doesn't grow another paragraph of inline shape-poking;
@@ -1114,6 +1118,8 @@ class ConversationExtractorV2:
 
         lines.append("---")
         for key, value in metadata.items():
+            if key == "project_assets":
+                continue  # Render file links below the title, not as YAML objects.
             if key == "custom_instructions" and isinstance(value, dict):
                 # Format custom instructions as a YAML block string
                 lines.append("custom_instructions: |")
@@ -1133,6 +1139,16 @@ class ConversationExtractorV2:
         markdown_parent = self.output_paths.get("markdown_dir", self.output_dir)
         if metadata.get("project_id"):
             markdown_parent = markdown_parent / metadata["project_id"]
+
+        project_assets = [
+            a for a in metadata.get("project_assets", []) if a.get("path")
+        ]
+        if project_assets:
+            lines.append("**Project files:**")
+            for asset in project_assets:
+                url = asset_url(self.output_dir, asset["path"], markdown_parent)
+                lines.append(f"- [{markdown_label(asset['name'])}]({url})")
+            lines.append("")
 
         for msg in messages:
             role = msg["role"]
@@ -1420,6 +1436,8 @@ class ConversationExtractorV2:
         # Handle custom instructions - already in dict format from metadata
         if custom_instructions := metadata.get("custom_instructions"):
             json_data["custom_instructions"] = custom_instructions
+        if project_assets := metadata.get("project_assets"):
+            json_data["project_assets"] = project_assets
 
         # Transform messages to JSON structure, preserving optional fields only when present to minimize output size
         for msg in messages:

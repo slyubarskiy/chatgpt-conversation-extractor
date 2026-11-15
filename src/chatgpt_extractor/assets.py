@@ -122,6 +122,7 @@ class AssetManager:
         self.assets: Dict[Path, Asset] = {}
         self.aliases: Dict[str, List[Asset]] = {}
         self.origins: Dict[str, List[Asset]] = {}
+        self.projects: Dict[str, List[Asset]] = {}
         roots = sorted({self.root, *(p.parent.resolve() for p in sources)})
         for folder in roots:
             self._load_folder(folder)
@@ -236,6 +237,13 @@ class AssetManager:
             origin = record.get("origination_message_id")
             if isinstance(origin, str):
                 self.origins.setdefault(origin, []).append(asset)
+            project = record.get("gizmo_id")
+            if (
+                isinstance(project, str)
+                and project.startswith("g-p-")
+                and record.get("is_project") is not False
+            ):
+                self.projects.setdefault(project, []).append(asset)
 
     def _reindex(self) -> None:
         for asset in self.assets.values():
@@ -314,6 +322,20 @@ class AssetManager:
         for asset in self.origins.get(message.get("id"), []):
             found.setdefault(asset.source, self._record(asset))
         return list(found.values())
+
+    def for_project(self, project: str) -> List[Dict[str, Any]]:
+        """Return exported files explicitly associated with this project.
+
+        This is project-level context, not evidence that a particular message
+        uploaded or used a file. Custom GPT knowledge stays out of this list.
+        """
+        assets = {a.source: a for a in self.projects.get(project, [])}
+        return [
+            self._record(a)
+            for a in sorted(
+                assets.values(), key=lambda a: (a.name.casefold(), a.source)
+            )
+        ]
 
     @staticmethod
     def _record(asset: Asset) -> Dict[str, Any]:

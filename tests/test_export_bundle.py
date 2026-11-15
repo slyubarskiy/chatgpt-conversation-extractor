@@ -577,3 +577,66 @@ def test_legacy_named_image_and_file_service_pointer(tmp_path):
         "![photo.png](../assets/photo.png)"
         in (output / "md/legacy-image.md").read_text()
     )
+
+
+@pytest.mark.parametrize("mode", ["copy", "none"])
+def test_project_sources_are_shared_across_chats_without_message_attachments(
+    tmp_path, mode
+):
+    root = tmp_path / "export"
+    root.mkdir()
+    records = []
+    for identifier, project, flag in (
+        ("shared", "g-p-a", True),
+        ("other", "g-p-b", True),
+        ("custom", "g-custom", False),
+    ):
+        (root / f"file_{identifier}.dat").write_text(
+            f"Reference material: {identifier}"
+        )
+        records.append(
+            {
+                "file_id": f"file-{identifier}",
+                "file_name": f"{identifier}.txt",
+                "gizmo_id": project,
+                "is_project": flag,
+            }
+        )
+    write_json(root / "library_files.json", records)
+    write_json(
+        root / "conversations.json",
+        [
+            conversation("project-first", "First question", project="g-p-a"),
+            conversation("project-second", "Second question", project="g-p-a"),
+            conversation("another-project", "Other question", project="g-p-b"),
+            conversation("regular", "Regular question"),
+        ],
+    )
+    output = tmp_path / "output"
+    markdown_dir = tmp_path / "custom markdown"
+    extract(
+        root,
+        output,
+        asset_mode=mode,
+        markdown_dir=str(markdown_dir),
+        gpt_metadata=False,
+    )
+    for name in ("project-first", "project-second"):
+        md = (markdown_dir / "g-p-a" / f"{name}.md").read_text()
+        data = json.loads((output / "json/g-p-a" / f"{name}.json").read_text())
+        assert data["project_id"] == "g-p-a"
+        assert not data["messages"][0].get("assets")
+        assert "other.txt" not in md and "custom.txt" not in md
+        if mode == "copy":
+            assert "**Project files:**" in md
+            assert "[shared.txt](../../output/assets/shared.txt)" in md
+            assert [a["path"] for a in data["project_assets"]] == ["assets/shared.txt"]
+        else:
+            assert "**Project files:**" not in md
+            assert "project_assets" not in data
+    regular = json.loads((output / "json/regular.json").read_text())
+    assert "project_assets" not in regular
+    other = json.loads((output / "json/g-p-b/another-project.json").read_text())
+    if mode == "copy":
+        assert [a["name"] for a in other["project_assets"]] == ["other.txt"]
+        assert (output / "assets/custom.txt").is_file()

@@ -164,6 +164,15 @@ directory. Missing assets leave the existing filename placeholders where
 available. Library metadata alone does not guarantee that file bytes were
 included in the export.
 
+Project chats remain grouped in `md/g-p-…/` and `json/g-p-…/`. When Library
+metadata associates a file with a project through `gizmo_id` (and does not mark
+`is_project` false), every exported chat in that project gets a **Project files**
+list. JSON carries these files under conversation-level `project_assets`.
+This also includes project resources never attached to an individual message.
+Ordinary chat attachments stay at message level, and Custom GPT knowledge files
+are not mixed into project lists. These are associations recorded in the export
+snapshot, not proof that a file was available or used at every historical turn.
+
 Attachments marked `is_big_paste` are decoded as UTF-8 (or BOM-marked UTF-16)
 and included in full within their originating message in both Markdown and JSON.
 They are appended beneath the message text with a “Pasted text” label and a
