@@ -18,6 +18,7 @@ import yaml
 from .processors import MessageProcessor
 from .trackers import SchemaEvolutionTracker, ProgressTracker
 from .logging_config import get_logger, log_exception
+from .inputs import discover_export, ConversationStream
 
 # Constants for JSON output formatting
 JSON_EXPORT_FILENAME_PATTERN = "conversations_export_{timestamp}.json"
@@ -53,7 +54,8 @@ class ConversationExtractorV2:
         """Initialize the extractor with multi-format configuration.
 
         Args:
-            input_file: Path to conversations.json. Optional — only required if
+            input_file: Path to a conversation JSON file, export_manifest.json,
+                        or extracted export directory. Optional — only required if
                         extract_all() will be called. Per-conversation methods
                         (process_conversation, generate_markdown, save_markdown_file,
                         sanitize_filename) operate on dicts already in memory and
@@ -294,8 +296,9 @@ class ConversationExtractorV2:
 
         try:
             self.logger.info(f"Loading conversations from {self.input_file}")
-            with open(self.input_file, "r", encoding="utf-8") as f:
-                conversations = json.load(f)
+            bundle = discover_export(self.input_file)
+            conversations = ConversationStream(bundle.files)
+            self.logger.info("Discovered %d conversation file(s)", len(bundle.files))
         except FileNotFoundError:
             self.logger.critical(f"Input file not found: {self.input_file}")
             raise
