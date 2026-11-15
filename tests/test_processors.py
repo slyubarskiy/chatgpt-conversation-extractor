@@ -1036,3 +1036,17 @@ class TestShortCardLabels:
         from chatgpt_extractor.processors import _card_strings
 
         assert _card_strings(line) == []
+
+
+def test_garbled_text_version_is_refused(caplog):
+    """The source's text version can itself be garbled (U+FFFD where letters
+    were lost; 8 card messages measured) while the message text is clean.
+    Rendering it would put garbling into a note that has none today."""
+    proc = MessageProcessor(SchemaEvolutionTracker())
+    source = "<box><text>Атмосферные поезда и чайники</text></box>"
+    fb = "Атмосферные поезд�� и чайники"
+    msg = _card_msg(fb, source=source)
+    with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
+        assert proc.extract_message_content(msg, "c") == source
+    assert proc.is_interactive_card(msg) is False
+    assert any("U+FFFD" in r.getMessage() for r in caplog.records)

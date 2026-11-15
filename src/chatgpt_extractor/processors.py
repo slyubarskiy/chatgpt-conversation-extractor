@@ -271,6 +271,16 @@ def _card_strings(message_text: str) -> List[str]:
     return found
 
 
+def _more_garbled(fallback: str, message_text: str) -> bool:
+    """Whether the text version has lost more letters than the message.
+
+    The source's text version can itself carry U+FFFD where the message text
+    is clean (8 card messages measured, in the stored raw JSON, so not a
+    transfer fault). Using it would put garbling into a note that has none.
+    """
+    return fallback.count("\ufffd") > message_text.count("\ufffd")
+
+
 def _message_text(msg: Dict[str, Any]) -> str:
     """The string parts of a message, joined as extract_from_parts joins them."""
     parts = (msg.get("content") or {}).get("parts") or []
@@ -511,18 +521,20 @@ class MessageProcessor:
         return (
             fallback is not None
             and _has_card_code(text)
+            and not _more_garbled(fallback, text)
             and not _missing_prose_lines(text, fallback)
         )
 
     def _card_fallback(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
         """Return a card's raw text version, or None to render as before.
 
-        Both refusals log at WARNING because the note then shows template
+        Every refusal logs at WARNING because the note then shows template
         code, with placeholders where values belong:
         - no usable text version (absent, blank, not a string): not seen in
           1,859 card messages, so it would mean the source changed;
-        - an incomplete one: about 3% of card messages (see the module notes);
-          rendering it would cut the reply short.
+        - a garbled one (more U+FFFD than the message): 8 measured;
+        - an incomplete one: under 1% of card messages after the comparison
+          fixes (see the module notes); rendering it would cut the reply.
         """
         dil = (msg.get("metadata") or {}).get("model_dil_v2")
         if not isinstance(dil, dict) or not _has_card_code(_message_text(msg)):
@@ -539,7 +551,19 @@ class MessageProcessor:
                 type(dil.get("fallbackMarkdown")).__name__,
             )
             return None
-        missing = _missing_prose_lines(_message_text(msg), fallback)
+        text = _message_text(msg)
+        if _more_garbled(fallback, text):
+            logger.warning(
+                "Interactive card text version is garbled (%d U+FFFD against "
+                "%d in the message): conv=%s msg=%s; rendering the card's "
+                "template code instead",
+                fallback.count("\ufffd"),
+                text.count("\ufffd"),
+                conv_id,
+                msg.get("id"),
+            )
+            return None
+        missing = _missing_prose_lines(text, fallback)
         if missing:
             logger.warning(
                 "Interactive card text version is incomplete (%d prose line(s) "
