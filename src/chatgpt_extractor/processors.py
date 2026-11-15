@@ -2,6 +2,8 @@
 Message processing components for content extraction and filtering.
 """
 
+import html
+import json
 import logging
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -20,6 +22,176 @@ URL_IN_TEXT_RE = re.compile(r'https?://[^\s<>"]+')
 # Closing delimiter -> its opener. A closer with no matching opener earlier in
 # the URL means the regex ran past the URL's end into surrounding markup.
 _URL_CLOSERS = {")": "(", "]": "["}
+
+# ---- Interactive cards (metadata.model_dil_v2, seen since ~2026-10-08) ----
+#
+# A card reply's message text is template code whose bound values are bare
+# placeholders, so the note would lack names, prices and addresses the site
+# shows. The same message carries ``fallbackMarkdown``: the source's own plain
+# rendering with every value filled in. That text still uses ChatGPT's inline
+# markers and escapes more than Markdown needs, so it is cleaned before use.
+
+# Inline marker: U+E200 kind (U+E202 arg)* U+E201. Non-greedy and DOTALL
+# because widget payloads are JSON that can span lines; markers never nest
+# (measured: 0 unbalanced START/END pairs across 1,859 card messages).
+_MARKER_RE = re.compile("\ue200([a-z_]+)((?:\ue202.*?)?)\ue201", re.S)
+_MARKER_SEP = "\ue202"
+
+# Markers a reader gets nothing from. Citation ids (``turn1search1``) only
+# resolve against search results the fallback does not carry, and the
+# message's sources already reach the Citations block from metadata; an
+# image group is a search phrase for pictures, not a picture. Leading spaces
+# are part of the match so "text. <marker>" does not leave "text. ".
+_DROPPED_MARKER_KINDS = {"cite", "filecite", "image_group"}
+_DROPPED_MARKER_RE = re.compile(
+    "[ \t]*(?:" + "|".join(sorted(_DROPPED_MARKER_KINDS)) + ")" "(?:.*?)?",
+    re.S,
+)
+
+# Fenced blocks and inline code spans. The fallback leaves code unescaped and
+# code holds real backslashes (seen: ``regex:^report.*\.pdf$``), so escape
+# clean-up must skip these spans.
+_CODE_SPAN_RE = re.compile(r"(```|~~~)[^\n]*\n.*?\n\1|`[^`\n]+`", re.S)
+
+# Backslash escapes that Markdown never needs for these characters. Others
+# are kept on purpose: ``\$`` (Obsidian reads $…$ as maths), ``\-``, ``\*``,
+# ``\#``, ``\~``, brackets and parens can all change how a line renders.
+_NEEDLESS_ESCAPE_RE = re.compile(r'\\([:@%;="])')
+# ``\.`` is needless except after a line-leading number ("1\. x" would turn
+# into an ordered list) and ``\!`` except before ``[`` (would become an
+# image embed).
+_NEEDLESS_DOT_RE = re.compile(r"(?<!\\)\\\.")
+_LIST_NUMBER_DOT_RE = re.compile(r"(?m)^(\s*\d+)\\\.")
+_NEEDLESS_BANG_RE = re.compile(r"\\!(?!\[)")
+
+# ---- Completeness check: is the text version the whole message? ----------
+#
+# The text version is not always whole. On 1,850 real card messages, 1,790
+# carried every prose line of the message, 13 stopped early (one
+# mid-sentence at 5,732 of 10,571 characters) and 47 lacked lines elsewhere.
+# So it is used only when every prose line of the message text -- lines that
+# are not card code -- appears in it; otherwise the message keeps today's
+# rendering. Comparison is on a normalised form that ignores what the two
+# renderings legitimately do differently (escapes, entities, emphasis
+# markers, inline markers, spacing, case).
+
+# A line holding a tag or a {template expression} is card code, and a line
+# opening with data punctuation is a row of a card's data array; neither is
+# expected verbatim in the text version.
+_CARD_CODE_LINE_RE = re.compile(r"<[^>\n]*>|\{[^{}\n]*\}")
+_DATA_ROW_RE = re.compile(r'^\s*[\[\]{}(),"]')
+_ANY_MARKER_RE = re.compile("\ue200[a-z_]+(?:\ue202[^\ue201]*)*\ue201")
+# Lines shorter than this (after normalising) are not checked: numbering and
+# short labels are where the two renderings differ in form, and the 25-char
+# floor is what the 1,790-of-1,850 measurement above used.
+_MIN_CHECKED_LINE = 25
+
+
+def _comparable(text: str) -> str:
+    """Normalise text so the message and its text version can be compared."""
+    text = html.unescape(text)
+    text = re.sub(r"\\([^\w\s])", r"\1", text)
+    text = _ANY_MARKER_RE.sub(" ", text)
+    text = text.replace("**", "").replace("__", "").replace("`", "")
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _missing_prose_lines(message_text: str, fallback: str) -> List[str]:
+    """Prose lines of the message that its text version does not contain.
+
+    U+FFFD in the message (a letter lost before it was stored) matches any
+    one or two characters, so a text version that has the letter still
+    counts as complete -- and is then the better rendering.
+    """
+    haystack = _comparable(fallback)
+    missing: List[str] = []
+    for line in message_text.splitlines():
+        if _CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line):
+            continue
+        core = _comparable(line).strip(" |#->*")
+        if len(core) < _MIN_CHECKED_LINE:
+            continue
+        if "\ufffd" in core:
+            pattern = ".{1,2}".join(re.escape(p) for p in re.split("\ufffd+", core))
+            if re.search(pattern, haystack):
+                continue
+        elif core in haystack:
+            continue
+        missing.append(line)
+    return missing
+
+
+# ---- Card content the text version leaves out ----------------------------
+#
+# The text version renders a card's default view only: strings behind a tab,
+# filter, accordion, form option or follow-up button are dropped (measured:
+# 428 fragments in 60 of 323 vault notes). They sit in the card code as
+# string literals or tag text, so they are collected from there and listed
+# in a collapsed callout under the text version.
+_STRING_LITERAL_RE = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+# Follow-up buttons can build their prompt as a JavaScript template string;
+# each ${...} hole depends on what the reader picked, so it is shown as "…".
+_TEMPLATE_STRING_RE = re.compile(r"`((?:[^`\\\n]|\\.)*)`")
+_TEMPLATE_HOLE_RE = re.compile(r"\$\{[^{}]*\}")
+# Text pieces are what remains of a card line between tags and {expressions}.
+# Splitting rather than matching ">text<" also catches prose that runs into a
+# closing tag ("…the result.</WritingBlock>") and text after an opening tag
+# that continues on the next line ("<caption>A model of …"), both seen.
+_TAG_OR_EXPR_RE = re.compile(r"<[^>]*>|\{[^{}]*\}")
+# A piece holding these is code left by a tag or expression spanning lines.
+_CODE_CHARS_RE = re.compile(r'[<>{}=;`"]')
+# Readable text has at least two words of three or more letters; this keeps
+# out ids, sizes, colours, SVG path data and the like.
+_READABLE_RE = re.compile(r"[^\W\d_]{3,}\W+(?:.*\W)?[^\W\d_]{3,}", re.S)
+_MIN_CARD_STRING = 12
+_HIDDEN_CONTENT_CALLOUT = (
+    "> [!note]- More card content (other tabs, options and buttons)"
+)
+
+
+def _card_strings(message_text: str) -> List[str]:
+    """Readable strings in a message's card code, in order, de-duplicated."""
+    seen: set = set()
+    found: List[str] = []
+    for line in message_text.splitlines():
+        if not (_CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line)):
+            continue  # prose lines are covered by the completeness check
+        candidates = []
+        for m in _STRING_LITERAL_RE.finditer(line):
+            try:
+                # Card code is JavaScript-like; its string escapes match JSON's
+                # for everything seen in practice (\" \n —).
+                candidates.append(json.loads('"' + m.group(1) + '"'))
+            except ValueError:
+                candidates.append(m.group(1))
+        candidates.extend(
+            _TEMPLATE_HOLE_RE.sub("…", m.group(1))
+            for m in _TEMPLATE_STRING_RE.finditer(line)
+        )
+        # Only lines that hold tags or expressions have text pieces; a data
+        # row ('["a", "b"],') is covered by the string literals above.
+        pieces = _TAG_OR_EXPR_RE.split(line)
+        if len(pieces) > 1:
+            candidates.extend(p for p in pieces if not _CODE_CHARS_RE.search(p))
+        for s in candidates:
+            s = " ".join(s.split())
+            if (
+                len(s) < _MIN_CARD_STRING
+                or s.startswith(("http://", "https://"))
+                or "var(--" in s
+                or not _READABLE_RE.search(s)
+                or s in seen
+            ):
+                continue
+            seen.add(s)
+            found.append(s)
+    return found
+
+
+def _message_text(msg: Dict[str, Any]) -> str:
+    """The string parts of a message, joined as extract_from_parts joins them."""
+    parts = (msg.get("content") or {}).get("parts") or []
+    return "\n".join(p for p in parts if isinstance(p, str))
 
 
 class MessageProcessor:
@@ -126,6 +298,13 @@ class MessageProcessor:
         if content_type:
             self.tracker.track_content_type(content_type, conv_id)
 
+        # A card's text version replaces its template code (see the module
+        # notes on interactive cards). When the card has no usable text
+        # version, fall through to today's rendering so nothing is lost.
+        fallback = self._card_fallback(msg, conv_id)
+        if fallback is not None:
+            return self.render_card_fallback(fallback, conv_id, _message_text(msg))
+
         if content_type == "text":
             # Standard text message
             parts = content.get("parts", [])
@@ -222,6 +401,184 @@ class MessageProcessor:
                 return self.extract_from_parts(parts, conv_id)
 
         return None
+
+    @staticmethod
+    def _raw_fallback(msg: Dict[str, Any]) -> Optional[str]:
+        """The card's text version if present and non-blank, else None."""
+        dil = (msg.get("metadata") or {}).get("model_dil_v2")
+        if not isinstance(dil, dict):
+            return None
+        fallback = dil.get("fallbackMarkdown")
+        if isinstance(fallback, str) and fallback.strip():
+            return fallback
+        return None
+
+    @classmethod
+    def is_interactive_card(cls, msg: Dict[str, Any]) -> bool:
+        """Whether a message will render from a card's text version.
+
+        True exactly when ``extract_message_content`` uses it: the text
+        version is present, non-blank and complete. Callers count these per
+        conversation for the ``interactive_cards`` frontmatter field, so the
+        count matches what the note shows.
+        """
+        fallback = cls._raw_fallback(msg)
+        return fallback is not None and not _missing_prose_lines(
+            _message_text(msg), fallback
+        )
+
+    def _card_fallback(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
+        """Return a card's raw text version, or None to render as before.
+
+        Both refusals log at WARNING because the note then shows template
+        code, with placeholders where values belong:
+        - no usable text version (absent, blank, not a string): not seen in
+          1,859 card messages, so it would mean the source changed;
+        - an incomplete one: about 3% of card messages (see the module notes);
+          rendering it would cut the reply short.
+        """
+        dil = (msg.get("metadata") or {}).get("model_dil_v2")
+        if not isinstance(dil, dict):
+            return None
+        fallback = self._raw_fallback(msg)
+        if fallback is None:
+            logger.warning(
+                "Interactive card without a usable fallbackMarkdown: conv=%s "
+                "msg=%s type=%s; rendering the card's template code instead",
+                conv_id,
+                msg.get("id"),
+                type(dil.get("fallbackMarkdown")).__name__,
+            )
+            return None
+        missing = _missing_prose_lines(_message_text(msg), fallback)
+        if missing:
+            logger.warning(
+                "Interactive card text version is incomplete (%d prose line(s) "
+                "of the message absent, first: %r): conv=%s msg=%s; rendering "
+                "the card's template code instead",
+                len(missing),
+                missing[0][:80],
+                conv_id,
+                msg.get("id"),
+            )
+            return None
+        return fallback
+
+    def render_card_fallback(
+        self, text: str, conv_id: str, message_text: str = ""
+    ) -> str:
+        """Clean a card's text version for the note.
+
+        Steps, in this order:
+        1. Resolve inline markers (links, entity names, widget data) and drop
+           the ones a reader gets nothing from. Done first so marker payloads
+           (JSON) are never touched by the escape clean-up.
+        2. Decode ``&amp;``. ``&#124;`` is kept: it is a literal pipe inside a
+           table cell, and decoding it would split the cell.
+        3. Remove backslash escapes Markdown does not need, outside code only,
+           so exact-text search finds "signals:" rather than "signals\\:".
+        4. List, in a collapsed callout, readable strings of the card code
+           (``message_text``) that the result lacks -- content behind tabs,
+           filters, accordions, options and buttons.
+        """
+        # Dropped markers go first, together with the spaces just before them,
+        # so "Fact <cite>." becomes "Fact." rather than "Fact .". Trimming
+        # only there keeps spacing elsewhere (code included) untouched.
+        text = _DROPPED_MARKER_RE.sub("", text)
+        text = _MARKER_RE.sub(lambda m: self._resolve_marker(m, conv_id), text)
+        text = text.replace("&amp;", "&")
+        text = self._unescape_outside_code(text)
+
+        shown = _comparable(text)
+        hidden = [s for s in _card_strings(message_text) if _comparable(s) not in shown]
+        if hidden:
+            text = (
+                text.rstrip("\n")
+                + "\n\n"
+                + _HIDDEN_CONTENT_CALLOUT
+                + "\n"
+                + "\n".join(f"> - {s}" for s in hidden)
+            )
+        return text
+
+    def _resolve_marker(self, match: "re.Match[str]", conv_id: str) -> str:
+        """Render one inline marker; keep it verbatim when its shape is unknown."""
+        kind = match.group(1)
+        args = match.group(2).split(_MARKER_SEP)[1:]
+        try:
+            if kind == "url" and len(args) == 2 and args[1].startswith("http"):
+                return f"[{args[0]}]({args[1]})"
+            if kind == "entity" and len(args) == 1:
+                # ["type", "display name", optional description, ...]
+                value = json.loads(args[0])
+                if (
+                    isinstance(value, list)
+                    and len(value) >= 2
+                    and isinstance(value[1], str)
+                ):
+                    return value[1]
+            if kind == "genui" and len(args) == 1:
+                return self._render_widget(json.loads(args[0]))
+        except (ValueError, TypeError, AttributeError, KeyError):
+            # Fall through to the keep-and-log path below: a payload that
+            # does not parse is a shape this code was not built for.
+            pass
+        logger.warning(
+            "Unrecognised inline marker kept verbatim: conv=%s kind=%s args=%d",
+            conv_id,
+            kind,
+            len(args),
+        )
+        return match.group(0)
+
+    @staticmethod
+    def _render_widget(payload: Dict[str, Any]) -> str:
+        """Render a ``genui`` widget payload as readable Markdown.
+
+        Maps become a name/address list (the reader wants the places, not
+        coordinates). Charts and any other widget keep their full data in a
+        fenced JSON block: lossless, and Obsidian shows it as code rather
+        than trying to render it.
+        """
+        if not isinstance(payload, dict) or len(payload) != 1:
+            raise ValueError("widget payload must be a one-key object")
+        ((name, body),) = payload.items()
+        if name == "map_widget_v2":
+            lines = []
+            for point in body["points"]:
+                label = point.get("name") or point.get("address") or "?"
+                address = point.get("address")
+                lines.append(
+                    f"- **{label}** — {address}" if address else f"- **{label}**"
+                )
+            return "\n".join(lines)
+        data = json.dumps(payload, ensure_ascii=False, indent=2)
+        if name == "charts_widget_v2":
+            title = (body.get("content") or {}).get("meta", {}).get("title")
+            heading = f"**Chart: {title}**\n" if title else "**Chart**\n"
+            return f"{heading}```json\n{data}\n```"
+        return f"```json\n{data}\n```"
+
+    @staticmethod
+    def _unescape_outside_code(text: str) -> str:
+        """Remove needless backslash escapes everywhere except code spans."""
+
+        def clean(chunk: str) -> str:
+            # Shield "1\." at line start with a private-use sentinel, unescape
+            # the remaining "\.", then restore the shielded list numbers.
+            chunk = _LIST_NUMBER_DOT_RE.sub(lambda m: m.group(1) + "", chunk)
+            chunk = _NEEDLESS_DOT_RE.sub(".", chunk)
+            chunk = chunk.replace("", "\\.")
+            chunk = _NEEDLESS_BANG_RE.sub("!", chunk)
+            return _NEEDLESS_ESCAPE_RE.sub(r"\1", chunk)
+
+        out, pos = [], 0
+        for m in _CODE_SPAN_RE.finditer(text):
+            out.append(clean(text[pos : m.start()]))
+            out.append(m.group(0))
+            pos = m.end()
+        out.append(clean(text[pos:]))
+        return "".join(out)
 
     def extract_from_parts(self, parts: List[Any], conv_id: str) -> Optional[str]:
         """Extract content from parts array (handles multimodal content)."""

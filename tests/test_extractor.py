@@ -569,3 +569,71 @@ class TestBranchParentLinks:
         )
         assert "**Branched from:**" in on
         assert "**Branched from:**" not in off
+
+
+class TestInteractiveCardCount:
+    """A conversation's card count reaches frontmatter as ``interactive_cards``.
+
+    Once cards render as their text version the note no longer shows that a
+    card was there; the count keeps those notes findable (e.g. to re-render
+    them if the source's text version ever changes).
+    """
+
+    @pytest.fixture
+    def extractor(self, tmp_path):
+        input_file = tmp_path / "input.json"
+        input_file.write_text("[]", encoding="utf-8")
+        out = tmp_path / "output"
+        out.mkdir()
+        return ConversationExtractorV2(str(input_file), str(out))
+
+    @staticmethod
+    def _conv(*assistant_cards: bool):
+        """A linear conversation: one user turn, then one assistant message
+        per flag (True = carries a card). Consecutive assistant messages get
+        merged into one rendered turn, so this also pins that merging does not
+        change the count."""
+        mapping = {"root": {"id": "root", "message": None, "parent": None}}
+        prev = "root"
+        nodes = [("u", "user", False)] + [
+            (f"a{i}", "assistant", c) for i, c in enumerate(assistant_cards)
+        ]
+        for nid, role, card in nodes:
+            meta = {}
+            if card:
+                meta["model_dil_v2"] = {"fallbackMarkdown": f"Card text {nid}"}
+            mapping[nid] = {
+                "id": nid,
+                "parent": prev,
+                "message": {
+                    "id": nid,
+                    "author": {"role": role},
+                    "content": {"content_type": "text", "parts": [f"<box>{nid}</box>"]},
+                    "metadata": meta,
+                    "create_time": 1700000000,
+                },
+            }
+            prev = nid
+        return {
+            "id": "conv-cards",
+            "title": "Cards",
+            "create_time": 1700000000,
+            "update_time": 1700000000,
+            "mapping": mapping,
+            "current_node": prev,
+        }
+
+    def test_count_reaches_frontmatter_and_body_uses_card_text(self, extractor):
+        metadata, merged, _ = extractor.process_conversation(
+            self._conv(True, False, True)
+        )
+        assert metadata["interactive_cards"] == 2
+        md = extractor.generate_markdown(metadata, merged)
+        assert "interactive_cards: 2" in md
+        assert "Card text a0" in md and "Card text a2" in md
+        assert "<box>a0</box>" not in md
+
+    def test_no_cards_means_no_key(self, extractor):
+        metadata, merged, _ = extractor.process_conversation(self._conv(False))
+        assert "interactive_cards" not in metadata
+        assert "interactive_cards" not in extractor.generate_markdown(metadata, merged)

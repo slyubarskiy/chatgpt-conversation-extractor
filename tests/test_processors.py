@@ -479,3 +479,416 @@ class TestUrlBalancedDelimiterTrimming:
             "https://one.example.com",
             "https://two.example.com/x?y=1",
         ]
+
+
+# ChatGPT's inline-marker delimiters (Unicode private-use characters):
+# START type SEP arg SEP arg ... END.
+_S, _SEP, _E = "", "", ""
+
+
+def _marker(kind: str, *args: str) -> str:
+    """Build one inline marker exactly as the source writes it."""
+    return _S + kind + "".join(_SEP + a for a in args) + _E
+
+
+def _card_msg(
+    fallback, source="<box><text>{turn1business0.name}</text></box>", **dil_extra
+):
+    """An assistant message carrying an interactive card.
+
+    ``source`` is what the message text holds (the card's template code, with
+    bound placeholders); ``fallback`` is the plain-Markdown rendering the
+    source ships beside it at metadata.model_dil_v2.fallbackMarkdown. Pass
+    ``fallback=None`` to omit the key entirely.
+    """
+    dil = {"code": "x", "constants": {}, "appData": {}, **dil_extra}
+    if fallback is not None:
+        dil["fallbackMarkdown"] = fallback
+    return {
+        "id": "msg-card-1",
+        "author": {"role": "assistant"},
+        "content": {"content_type": "text", "parts": [source]},
+        "metadata": {"model_dil_v2": dil},
+    }
+
+
+class TestInteractiveCardFallback:
+    """Cards render as the source's own text version, not their template code.
+
+    Since about 2026-10-08 replies can embed an interactive card. The message
+    text then holds the card's template code, where bound values appear only
+    as placeholders (``{turn1business0.name}``), so a shop name shown on the
+    site is absent from the note. The same message ships a plain-Markdown
+    rendering with every value filled in; these tests pin that the extractor
+    uses it, and how its inline markers and escapes are cleaned.
+    """
+
+    @pytest.fixture
+    def processor(self):
+        return MessageProcessor(SchemaEvolutionTracker())
+
+    def _render(self, processor, fallback, **kw):
+        return processor.extract_message_content(_card_msg(fallback, **kw), "conv-1")
+
+    # ---- which text is used ------------------------------------------------
+
+    def test_card_renders_fallback_with_bound_values_filled(self, processor):
+        out = self._render(
+            processor, "| Shop | Address |\n|---|---|\n| Shop Alpha | 1 High St |"
+        )
+        assert "Shop Alpha" in out and "1 High St" in out
+        assert "{turn1business0" not in out
+        assert "<box" not in out
+
+    def test_message_without_card_metadata_is_unchanged(self, processor):
+        msg = {
+            "author": {"role": "assistant"},
+            "content": {"content_type": "text", "parts": ["Plain reply: a \\: b"]},
+            "metadata": {},
+        }
+        # Escape clean-up is for the fallback only; ordinary text passes through.
+        assert processor.extract_message_content(msg, "c") == "Plain reply: a \\: b"
+
+    @pytest.mark.parametrize("fallback", [None, "", "   ", 42])
+    def test_card_without_usable_fallback_keeps_source_and_warns(
+        self, processor, fallback, caplog
+    ):
+        """Never lose the message: with no usable fallback, render what the
+        message text holds (today's behaviour) and say so in the log."""
+        with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
+            out = self._render(processor, fallback, source="SOURCE TEXT")
+        assert out == "SOURCE TEXT"
+        assert any(
+            r.levelname == "WARNING"
+            and "fallbackMarkdown" in r.getMessage()
+            and "msg-card-1" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_is_interactive_card(self, processor):
+        assert processor.is_interactive_card(_card_msg("text")) is True
+        assert processor.is_interactive_card(_card_msg(None)) is False
+        assert processor.is_interactive_card({"metadata": None}) is False
+        assert processor.is_interactive_card({}) is False
+
+    # ---- inline markers ----------------------------------------------------
+
+    def test_url_marker_becomes_markdown_link(self, processor):
+        fb = (
+            "See " + _marker("url", "Gallery website", "https://gallery.example/") + "."
+        )
+        assert (
+            self._render(processor, fb)
+            == "See [Gallery website](https://gallery.example/)."
+        )
+
+    def test_entity_marker_becomes_its_name(self, processor):
+        fb = (
+            "Founded by "
+            + _marker("entity", '["people","Ada Example","a short description"]')
+            + "."
+        )
+        assert self._render(processor, fb) == "Founded by Ada Example."
+
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            _marker("cite", "turn1search1", "turn2search3"),
+            _marker("filecite", "turn0file0", "L45-L55"),
+            _marker("image_group", '{"query":["a picture"],"layout":"carousel"}'),
+        ],
+    )
+    def test_citation_and_image_markers_are_dropped(self, processor, marker):
+        """Citation ids mean nothing to a reader (the sources already reach the
+        Citations block); an image group is only a search phrase, no image."""
+        assert (
+            self._render(processor, "Open daily. " + marker + "\nNext")
+            == "Open daily.\nNext"
+        )
+        assert self._render(processor, "Fact " + marker + ".") == "Fact."
+
+    def test_map_widget_becomes_name_and_address_list(self, processor):
+        payload = (
+            '{"map_widget_v2":{"points":['
+            '{"name":"Gallery One","address":"1 Road, London","id":"a"},'
+            '{"name":"Gallery Two","address":"2 Lane, London","id":"b"}]}}'
+        )
+        out = self._render(processor, "Map:\n" + _marker("genui", payload))
+        assert "- **Gallery One** — 1 Road, London" in out
+        assert "- **Gallery Two** — 2 Lane, London" in out
+        assert _S not in out
+
+    def test_chart_widget_keeps_its_data_in_a_json_block(self, processor):
+        payload = (
+            '{"charts_widget_v2":{"content":{"chartType":"bar",'
+            '"meta":{"title":"Revenue growth"},"data":[1,2]}}}'
+        )
+        out = self._render(processor, _marker("genui", payload))
+        assert "**Chart: Revenue growth**" in out
+        assert "```json" in out and '"chartType": "bar"' in out
+
+    def test_other_widget_keeps_its_data_in_a_json_block(self, processor):
+        out = self._render(
+            processor, _marker("genui", '{"timeline_widget":{"items":[1]}}')
+        )
+        assert "```json" in out and '"timeline_widget"' in out
+
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            _marker("genui", "{not json"),
+            _marker("entity", "not-a-list"),
+            _marker("brand_new_kind", "payload"),
+        ],
+    )
+    def test_unreadable_or_unknown_marker_is_kept_and_logged(
+        self, processor, marker, caplog
+    ):
+        """Unknown shapes are left as they came (nothing guessed, nothing lost)
+        and logged, so the sync's log review surfaces them."""
+        with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
+            out = self._render(processor, "a " + marker + " b")
+        assert marker in out
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+
+    # ---- entities and escapes ----------------------------------------------
+
+    def test_amp_entity_is_decoded_but_table_pipe_entity_kept(self, processor):
+        out = self._render(processor, "| P&amp;L | a &#124; b |")
+        assert out == "| P&L | a &#124; b |"
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("**Main takeaway\\:** text", "**Main takeaway:** text"),
+            ("It went unanswered\\. Then", "It went unanswered. Then"),
+            (
+                'Email me\\@example and 50\\% off\\; a\\=b \\"q\\"',
+                'Email me@example and 50% off; a=b "q"',
+            ),
+            ("Wow\\! Great", "Wow! Great"),
+        ],
+    )
+    def test_needless_escapes_are_removed(self, processor, raw, expected):
+        assert self._render(processor, raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "1\\. Not a list item",  # would become an ordered list
+            "  12\\. Indented number",
+            "\\![not an image](x)",  # would become an image embed
+            "Costs \\$5 and \\$6",  # Obsidian reads $…$ as maths
+            "\\- not a bullet",
+            "a \\[b\\] \\(c\\) \\*d\\* \\~e\\~ \\#f",
+        ],
+    )
+    def test_meaningful_escapes_are_kept(self, processor, raw):
+        assert self._render(processor, raw) == raw
+
+    def test_escapes_inside_code_are_untouched(self, processor):
+        """Code in the fallback is not escaped by the source and holds real
+        backslashes (seen: ``regex:^report.*\\.pdf$``)."""
+        fb = (
+            "Use `regex:^report.*\\.pdf$` here\\:\n"
+            "```python\nre.compile(r'\\.md$')  # a\\: b\n```\n"
+            "Done\\."
+        )
+        out = self._render(processor, fb)
+        assert "`regex:^report.*\\.pdf$`" in out
+        assert "re.compile(r'\\.md$')  # a\\: b" in out
+        assert "here:" in out and out.endswith("Done.")
+
+
+class TestCardFallbackCompleteness:
+    """The text version is used only when it carries all of the message's prose.
+
+    Measured on 1,850 real card messages: 1,790 text versions hold every prose
+    line of the message, but 13 stop early (one mid-sentence, at 5,732 of
+    10,571 characters) and 47 miss lines elsewhere. Rendering such a text
+    version would cut the reply, so the message keeps today's rendering.
+    """
+
+    @pytest.fixture
+    def processor(self):
+        return MessageProcessor(SchemaEvolutionTracker())
+
+    SOURCE = (
+        "## Findings\n\n"
+        "The first warning is harmless and can be ignored safely.\n\n"
+        "<box><text>{turn1business0.name}</text></box>\n\n"
+        "## Next steps\n\n"
+        "Check the event frequency across the previous seven days.\n"
+    )
+
+    def _render(self, processor, fallback):
+        return processor.extract_message_content(
+            _card_msg(fallback, source=self.SOURCE), "conv-1"
+        )
+
+    def test_complete_fallback_is_used(self, processor):
+        fb = (
+            "## Findings\n\nThe first warning is harmless and can be ignored "
+            "safely\\.\n\n**Shop Alpha**\n\n## Next steps\n\n"
+            "Check the event frequency across the previous seven days\\."
+        )
+        out = self._render(processor, fb)
+        assert "Shop Alpha" in out and "<box>" not in out
+
+    @pytest.mark.parametrize(
+        "fallback",
+        [
+            # Cut at the end, mid-sentence, as seen in real data.
+            "## Findings\n\nThe first warning is harmless and can be ignored "
+            "safely.\n\n**Shop Alpha**\n\n## Next steps\n\nCheck the",
+            # A line missing in the middle.
+            "## Findings\n\n**Shop Alpha**\n\n## Next steps\n\n"
+            "Check the event frequency across the previous seven days.",
+        ],
+        ids=["tail-cut", "line-missing"],
+    )
+    def test_incomplete_fallback_keeps_message_text_and_warns(
+        self, processor, fallback, caplog
+    ):
+        with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
+            out = self._render(processor, fallback)
+        assert out == self.SOURCE.strip("\n") or out == self.SOURCE
+        assert any(
+            r.levelname == "WARNING"
+            and "incomplete" in r.getMessage()
+            and "msg-card-1" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_is_interactive_card_false_for_incomplete_fallback(self, processor):
+        """The frontmatter count must match what was actually rendered."""
+        msg = _card_msg("## Findings\n\nShort.", source=self.SOURCE)
+        assert processor.is_interactive_card(msg) is False
+
+    def test_garbled_letters_in_message_do_not_block_a_clean_fallback(self, processor):
+        """Some stored message texts carry U+FFFD where a letter was lost; the
+        text version has the letter. Treat U+FFFD as any one or two
+        characters when comparing, so the cleaner text version is used."""
+        source = "Сколько раз в неделю ��ы ходите в спортзал по утрам?\n<box/>"
+        fb = "Сколько раз в неделю вы ходите в спортзал по утрам?"
+        out = processor.extract_message_content(_card_msg(fb, source=source), "c")
+        assert out == fb
+
+
+class TestCardHiddenContent:
+    """Card strings the text version leaves out go into a collapsed callout.
+
+    The text version renders a card's default view only. Strings behind a tab,
+    filter, accordion, form option or follow-up button (measured: 428 text
+    fragments in 60 of 323 vault notes) would otherwise vanish from the note,
+    though today's rendering carries them inside the card code.
+    """
+
+    @pytest.fixture
+    def processor(self):
+        return MessageProcessor(SchemaEvolutionTracker())
+
+    SOURCE = (
+        "Intro paragraph.\n"
+        "{@body const rows = [\n"
+        '  ["Which feature should ship first in the next release?", "A credible answer."],\n'
+        '  ["How should the rollout be staged across regions?", "Two examples with results."]\n'
+        "]}\n"
+        '<box><text size="lg">Release planning overview</text>\n'
+        '<svg><path d="M35 14 V145 H326" fill="var(--viz-text)"/></svg>\n'
+        '<Link url="https://example.com/page">Read more</Link>\n'
+        '<pressable onClick={()=>GenUI.issueNewTurn("My drive contains mostly photos and videos")}/>\n'
+        "</box>"
+    )
+
+    def _render(self, processor, fallback):
+        return processor.extract_message_content(
+            _card_msg(fallback, source=self.SOURCE), "conv-1"
+        )
+
+    def test_strings_missing_from_text_version_are_listed_in_a_callout(self, processor):
+        fb = "Intro paragraph.\n\n**Release planning overview**\n\n- Which feature should ship first in the next release?"
+        out = self._render(processor, fb)
+        body, _, callout = out.partition("> [!note]-")
+        assert "Release planning overview" in body
+        assert callout, "expected a collapsed callout"
+        assert "> - How should the rollout be staged across regions?" in out
+        assert "> - Two examples with results." in out
+        assert "> - My drive contains mostly photos and videos" in out
+        # Already shown in the body: not repeated.
+        assert callout.count("Which feature should ship") == 0
+
+    def test_code_noise_is_not_listed(self, processor):
+        fb = "Intro paragraph."
+        out = self._render(processor, fb)
+        for noise in (
+            "M35 14",
+            "var(--viz-text)",
+            "https://example.com/page",
+            "Read more",
+        ):
+            assert noise not in out.partition("> [!note]-")[2], noise
+
+    def test_no_callout_when_nothing_is_missing(self, processor):
+        fb = (
+            "Intro paragraph. Release planning overview. "
+            "Which feature should ship first in the next release? A credible answer. "
+            "How should the rollout be staged across regions? Two examples "
+            "with results. My drive contains mostly photos and videos"
+        )
+        assert "[!note]" not in self._render(processor, fb)
+
+
+class TestCardStringExtraction:
+    """Layouts of card text seen in real cards, each of which must be listed
+    when the text version lacks it, and code that must not be."""
+
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            # Prose running straight into a closing tag.
+            (
+                "- Provided product feedback recognised by the vendor.</WritingBlock>",
+                "- Provided product feedback recognised by the vendor.",
+            ),
+            # Text after an opening tag, continued on the next line.
+            (
+                "<caption>Illustrative capability model of the product, not exact",
+                "Illustrative capability model of the product, not exact",
+            ),
+            # Table cells.
+            (
+                "<table-row><table-cell>Decisiveness and ownership</table-cell></table-row>",
+                "Decisiveness and ownership",
+            ),
+        ],
+    )
+    def test_text_pieces_on_card_lines_are_found(self, line, expected):
+        from chatgpt_extractor.processors import _card_strings
+
+        assert expected in _card_strings(line)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "<pressable onClick={()=>setSelected(old=>v?null:v)}>",
+            '<text size="xs" color="secondary"',
+            "{const x=16+i*2.05;return `${x}`}",
+            '<path d="M35 14 V145 H326"/>',
+        ],
+    )
+    def test_code_on_card_lines_is_not_found(self, line):
+        from chatgpt_extractor.processors import _card_strings
+
+        assert _card_strings(line) == []
+
+
+def test_card_template_string_is_found_with_holes_marked():
+    """Follow-up buttons can build their prompt as a JavaScript template string."""
+    from chatgpt_extractor.processors import _card_strings
+
+    line = (
+        "<block onClick={()=>GenUI.issueNewTurn(`I mostly travel by "
+        "${modes.find(m=>m.value===mode).label}. Recommend a modular setup.`)}>"
+    )
+    assert "I mostly travel by …. Recommend a modular setup." in _card_strings(line)

@@ -442,6 +442,21 @@ class ConversationExtractorV2:
                 assert isinstance(custom_instructions, dict)
                 metadata["custom_instructions"] = custom_instructions
 
+            # Cards now render as their text version, so nothing in the body
+            # says a card was there; the count keeps those notes findable.
+            # Counted on the rendered path's raw messages, before merging,
+            # because merging folds several card messages into one turn.
+            # Absent (not 0) when there are none, so card-free notes keep
+            # their exact previous frontmatter.
+            card_count = sum(
+                1
+                for m in messages
+                if not self.message_processor.should_filter_message(m)
+                and self.message_processor.is_interactive_card(m)
+            )
+            if card_count:
+                metadata["interactive_cards"] = card_count
+
             # Generate JSON data if needed
             json_data = None
             if self.output_format in ["json", "both"]:
