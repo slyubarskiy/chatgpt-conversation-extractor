@@ -561,7 +561,7 @@ class MessageProcessor:
 
     @staticmethod
     def _unescape_outside_code(text: str) -> str:
-        """Remove needless backslash escapes everywhere except code spans."""
+        """Remove needless escapes and blank-line runs, except in code spans."""
 
         def clean(chunk: str) -> str:
             # Shield "1\." at line start with a private-use sentinel, unescape
@@ -570,7 +570,10 @@ class MessageProcessor:
             chunk = _NEEDLESS_DOT_RE.sub(".", chunk)
             chunk = chunk.replace("", "\\.")
             chunk = _NEEDLESS_BANG_RE.sub("!", chunk)
-            return _NEEDLESS_ESCAPE_RE.sub(r"\1", chunk)
+            chunk = _NEEDLESS_ESCAPE_RE.sub(r"\1", chunk)
+            # A dropped image group leaves its line empty; collapse the run
+            # (only here, outside code, where blank runs carry no meaning).
+            return re.sub(r"\n[ \t]*(?:\n[ \t]*){2,}", "\n\n", chunk)
 
         out, pos = [], 0
         for m in _CODE_SPAN_RE.finditer(text):

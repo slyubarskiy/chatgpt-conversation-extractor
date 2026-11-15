@@ -892,3 +892,16 @@ def test_card_template_string_is_found_with_holes_marked():
         "${modes.find(m=>m.value===mode).label}. Recommend a modular setup.`)}>"
     )
     assert "I mostly travel by …. Recommend a modular setup." in _card_strings(line)
+
+
+def test_blank_runs_left_by_dropped_markers_collapse_outside_code():
+    """Dropping an image group leaves a run of blank lines; code keeps its own."""
+    proc = MessageProcessor(SchemaEvolutionTracker())
+    fb = (
+        "Item one\n\n---\n\n"
+        + _marker("image_group", '{"query":["x"]}')
+        + "\n\n\n\nItem two\n```\na\n\n\n\nb\n```"
+    )
+    out = proc.extract_message_content(_card_msg(fb), "c")
+    assert "---\n\nItem two" in out
+    assert "a\n\n\n\nb" in out
