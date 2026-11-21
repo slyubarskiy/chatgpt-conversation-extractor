@@ -517,6 +517,27 @@ code blocks
 | `audio_asset_pointer` | Skip | N/A |
 | `real_time_user_audio_video_asset_pointer` | Skip | N/A |
 
+### Interactive Cards
+
+Some assistant replies embed an interactive card: the message text is card
+template code (`<box>`, `<Entity …>`, `{turn…}` placeholders, `{@body …}`
+state) and `metadata.model_dil_v2` carries a plain-Markdown text version,
+`fallbackMarkdown`, with bound values filled in.
+
+| Step | Rule |
+|------|------|
+| Is it a card? | The message text holds card code outside fenced code blocks. Card metadata alone is not enough. |
+| Garbling | Refused if the text version has more U+FFFD than the message. |
+| Completeness | Every prose line of the message (lines that are not card code; tags spanning lines count as code) must occur in the text version as a contiguous word sequence. Punctuation, escapes, entities, emphasis, spacing and link addresses are ignored; missing, cut-off or reworded lines fail. |
+| Rendering | Markers resolved (`url` → link, `entity` → name, `genui` map → list, other widgets → fenced JSON; `cite`, `filecite`, `image_group` dropped; unknown kinds kept and logged). Needless escapes and `&amp;` removed outside code. |
+| Hidden content | Readable strings in the card code that the text version lacks go into a collapsed `> [!note]- More card content` callout. |
+| Recording | Frontmatter and JSON: `interactive_cards` (rendered as text), `cards_as_code` (kept as code). |
+
+A refused card keeps its template code and logs a WARNING naming the reason.
+`MessageProcessor.card_status(msg)` returns `"text"`, `"code"` or `None`;
+rendering and both counts use it. Switch the feature off with
+`interactive_card_text: false`.
+
 ### Filtered Types
 
 These content types are always excluded:
@@ -569,6 +590,8 @@ The extractor reads YAML config from the first existing of:
 per_turn_timestamps: true
 gpt_metadata: true
 gpt_names_xlsx: null          # set to a path string to enable name resolution
+branch_links: true
+interactive_card_text: true   # render cards from their text version
 ```
 
 Malformed YAML falls back silently to built-in defaults — config errors
