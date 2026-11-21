@@ -27,6 +27,13 @@ Currently recognised keys:
   ``False``, output matches the pre-config behaviour (only the
   conversation-level ``model:`` from ``default_model_slug``).
 
+- ``interactive_card_text`` (bool, default ``True``) — render a reply that
+  holds an interactive card from the card's text version
+  (``metadata.model_dil_v2.fallbackMarkdown``) when that version contains all
+  of the message's prose; otherwise the card's template code is kept and
+  logged. Frontmatter gains ``interactive_cards: N`` and ``cards_as_code: N``.
+  When ``False``, output matches the pre-feature behaviour.
+
 - ``gpt_names_xlsx`` (str | None, default ``None``) — path to an xlsx
   sidecar mapping ``gizmo_id`` → human-readable name (produced by
   ``online_sync.gizmo_names_sync.sync_gizmos``). When set and the file is

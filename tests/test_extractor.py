@@ -637,3 +637,99 @@ class TestInteractiveCardCount:
         metadata, merged, _ = extractor.process_conversation(self._conv(False))
         assert "interactive_cards" not in metadata
         assert "interactive_cards" not in extractor.generate_markdown(metadata, merged)
+
+
+class TestCardStatusRecording:
+    """Each note records how its cards were rendered, and the feature can be
+    switched off.
+
+    ``interactive_cards: N`` counts cards rendered from their text version;
+    ``cards_as_code: N`` counts cards kept as card code because their text
+    version was unusable (cut off or garbled). A sync can then report cards
+    kept as code from frontmatter alone, without reading logs.
+    """
+
+    @pytest.fixture
+    def make(self, tmp_path):
+        def _make(**kw):
+            input_file = tmp_path / "input.json"
+            input_file.write_text("[]", encoding="utf-8")
+            out = tmp_path / "output"
+            out.mkdir(exist_ok=True)
+            return ConversationExtractorV2(str(input_file), str(out), **kw)
+
+        return _make
+
+    # A complete card, a cut-off card and an ordinary reply, in that order.
+    COMPLETE = ("<box>Shop Alpha</box>", "**Shop Alpha**")
+    CUT_OFF = (
+        "The first section explains the purpose of the review.\n<box/>\n"
+        "The final section lists the three recommended next steps.",
+        "The first section explains the purpose of the review.",
+    )
+
+    @classmethod
+    def _conv(cls):
+        mapping = {"root": {"id": "root", "message": None, "parent": None}}
+        prev = "root"
+        specs = [
+            ("u", "user", "Question", None),
+            ("a1", "assistant", cls.COMPLETE[0], cls.COMPLETE[1]),
+            ("u2", "user", "Next question", None),
+            ("a2", "assistant", cls.CUT_OFF[0], cls.CUT_OFF[1]),
+            ("u3", "user", "Thanks", None),
+            ("a3", "assistant", "A plain reply.", None),
+        ]
+        for nid, role, text, fb in specs:
+            meta = {"model_dil_v2": {"fallbackMarkdown": fb}} if fb else {}
+            mapping[nid] = {
+                "id": nid,
+                "parent": prev,
+                "message": {
+                    "id": nid,
+                    "author": {"role": role},
+                    "content": {"content_type": "text", "parts": [text]},
+                    "metadata": meta,
+                    "create_time": 1700000000,
+                },
+            }
+            prev = nid
+        return {
+            "id": "conv-status",
+            "title": "Status",
+            "create_time": 1700000000,
+            "update_time": 1700000000,
+            "mapping": mapping,
+            "current_node": prev,
+        }
+
+    def test_both_counts_reach_frontmatter(self, make):
+        ex = make()
+        metadata, merged, _ = ex.process_conversation(self._conv())
+        assert metadata["interactive_cards"] == 1
+        assert metadata["cards_as_code"] == 1
+        md = ex.generate_markdown(metadata, merged)
+        assert "interactive_cards: 1" in md and "cards_as_code: 1" in md
+        assert "**Shop Alpha**" in md  # complete card rendered as text
+        assert "The final section lists" in md  # cut-off card kept whole
+
+    def test_counts_reach_json_output(self, make):
+        ex = make(output_format="json")
+        metadata, merged, json_data = ex.process_conversation(self._conv())
+        assert json_data["interactive_cards"] == 1
+        assert json_data["cards_as_code"] == 1
+
+    def test_switch_off_reproduces_pre_feature_output(self, make):
+        ex = make(interactive_card_text=False)
+        metadata, merged, _ = ex.process_conversation(self._conv())
+        assert "interactive_cards" not in metadata
+        assert "cards_as_code" not in metadata
+        md = ex.generate_markdown(metadata, merged)
+        assert "<box>Shop Alpha</box>" in md and "**Shop Alpha**" not in md
+
+    def test_switch_reads_the_config_file(self, make, tmp_path):
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("interactive_card_text: false\n", encoding="utf-8")
+        ex = make(config_path=str(cfg))
+        metadata, merged, _ = ex.process_conversation(self._conv())
+        assert "interactive_cards" not in metadata

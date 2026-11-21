@@ -173,6 +173,17 @@ EXTRACTION COMPLETE!
   Output directory: data/output
 ```
 
+### Interactive Cards in Replies
+
+Newer ChatGPT replies can contain interactive cards (shop lists, maps,
+quizzes, tabs). The extractor writes them as readable text, using the plain
+version ChatGPT stores with each card, so names, prices and addresses appear
+in the note. Text that sits behind a tab or button is listed in a collapsed
+"More card content" block. If ChatGPT's plain version is cut off or garbled,
+the card is kept as its original code instead, so nothing is lost; the
+note's frontmatter counts both (`interactive_cards`, `cards_as_code`).
+Set `interactive_card_text: false` in the config file to keep cards as code.
+
 ## Advanced Usage
 
 ### Processing Large Files

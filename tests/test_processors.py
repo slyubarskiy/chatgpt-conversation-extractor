@@ -1152,3 +1152,32 @@ class TestWordSequenceComparison:
         fb = "Intro line for the card.\n\n**Release plan\\:** phase one \\- then phase two"
         out = proc.extract_message_content(_card_msg(fb, source=source), "c")
         assert "[!note]" not in out
+
+
+@pytest.mark.parametrize(
+    "msg, status",
+    [
+        (_card_msg("Text version"), "text"),
+        (
+            _card_msg(
+                "Short.", source="The first section explains the purpose.\n<box/>"
+            ),
+            "code",
+        ),
+        (_card_msg("Atmos�� text", source="<box>Atmosphere text</box>"), "code"),
+        (_card_msg(None), "code"),
+        (_card_msg("Text version", source="A plain reply with no card code"), None),
+        ({"content": {"parts": ["<box/>"]}, "metadata": {}}, None),
+    ],
+    ids=[
+        "complete",
+        "cut-off",
+        "garbled",
+        "no-text-version",
+        "plain-reply",
+        "no-card-metadata",
+    ],
+)
+def test_card_status(msg, status):
+    """One decision, shared by rendering and both frontmatter counts."""
+    assert MessageProcessor.card_status(msg) == status

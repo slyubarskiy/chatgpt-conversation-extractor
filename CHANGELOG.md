@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Replies that embed an interactive card (a reply whose text is card
+  template code, with bound values as placeholders such as
+  `{turn1business0.name}`) are rendered from the plain-Markdown text
+  version the source ships beside the card
+  (`metadata.model_dil_v2.fallbackMarkdown`), which has every value filled
+  in. Inline markers in it are resolved (link → Markdown link, entity →
+  its name, map → list of places, chart and other widgets → fenced JSON;
+  citation and image-group markers dropped) and needless escapes removed
+  outside code. The text version is used only when it is safe:
+  - the message must actually hold card code (about half of the messages
+    carrying card metadata are ordinary replies; they are unchanged);
+  - it must contain every prose line of the message, compared as word
+    sequences, so formatting differences do not count but a cut-off
+    version is refused (about 1% of cards);
+  - it must not be more garbled (U+FFFD) than the message.
+  A card that fails is kept as template code and logged at WARNING.
+  Card strings the text version omits (other tabs, options, buttons) are
+  listed in a collapsed `> [!note]- More card content` callout.
+  Frontmatter and JSON gain `interactive_cards: N` (cards rendered as text)
+  and `cards_as_code: N` (cards kept as code). Controlled by
+  `interactive_card_text` (default on); off reproduces previous output.
 - A merged assistant reply now records when it finished as well as when
   it began: `merge_continuations` adds `last_segment_time`, the latest
   `create_time` among the merged segments, beside the first segment's

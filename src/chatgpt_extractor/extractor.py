@@ -46,6 +46,7 @@ class ConversationExtractorV2:
         per_turn_timestamps: Optional[bool] = None,
         gpt_metadata: Optional[bool] = None,
         branch_links: Optional[bool] = None,
+        interactive_card_text: Optional[bool] = None,
         gpt_names_xlsx: Optional[str] = None,
         web_urls: Optional[Union[str, Dict[str, str]]] = None,
         config_path: Optional[str] = None,
@@ -91,6 +92,13 @@ class ConversationExtractorV2:
                         ``plugin_namespace``. Pass ``False`` for legacy
                         output; ``None`` (default) reads from the config
                         file (itself defaults to ``True``).
+            interactive_card_text: Render interactive cards (replies whose
+                        text is card template code) from the text version the
+                        source ships beside them, when that version is whole;
+                        frontmatter then gains ``interactive_cards`` and, for
+                        cards kept as code, ``cards_as_code``. ``False``
+                        reproduces pre-feature output. ``None`` (default)
+                        reads the config file, which defaults to ``True``.
             gpt_names_xlsx: Optional path to a ``GPT_Names.xlsx`` sidecar
                         (id → human-readable name). When provided AND the
                         file is readable, frontmatter gains a ``gpt_name:``
@@ -143,6 +151,7 @@ class ConversationExtractorV2:
             per_turn_timestamps is None
             or gpt_metadata is None
             or branch_links is None
+            or interactive_card_text is None
             or gpt_names_xlsx is None
             or web_urls is None
         ):
@@ -155,6 +164,8 @@ class ConversationExtractorV2:
             gpt_metadata = bool(_cfg.get("gpt_metadata", True))
         if branch_links is None:
             branch_links = bool(_cfg.get("branch_links", True))
+        if interactive_card_text is None:
+            interactive_card_text = bool(_cfg.get("interactive_card_text", True))
         if gpt_names_xlsx is None:
             # ``None`` here means "no name resolution" — distinct from
             # the per_turn / gpt_metadata booleans which default True.
@@ -170,6 +181,7 @@ class ConversationExtractorV2:
         self.per_turn_timestamps = per_turn_timestamps
         self.gpt_metadata = gpt_metadata
         self.branch_links = branch_links
+        self.interactive_card_text = interactive_card_text
         # Load the gpt_id → name map once at construct time; downstream
         # reads (extract_metadata + generate_markdown) reuse the same
         # dict. Missing / bad sidecar → empty dict, no crash.
@@ -186,7 +198,9 @@ class ConversationExtractorV2:
         self._create_output_directories()
 
         self.schema_tracker = SchemaEvolutionTracker()
-        self.message_processor = MessageProcessor(self.schema_tracker)
+        self.message_processor = MessageProcessor(
+            self.schema_tracker, card_text=self.interactive_card_text
+        )
 
         self.conversion_failures: List[Dict[str, Any]] = []
 
@@ -442,20 +456,27 @@ class ConversationExtractorV2:
                 assert isinstance(custom_instructions, dict)
                 metadata["custom_instructions"] = custom_instructions
 
-            # Cards now render as their text version, so nothing in the body
-            # says a card was there; the count keeps those notes findable.
-            # Counted on the rendered path's raw messages, before merging,
-            # because merging folds several card messages into one turn.
-            # Absent (not 0) when there are none, so card-free notes keep
-            # their exact previous frontmatter.
-            card_count = sum(
-                1
-                for m in messages
-                if not self.message_processor.should_filter_message(m)
-                and self.message_processor.is_interactive_card(m)
-            )
-            if card_count:
-                metadata["interactive_cards"] = card_count
+            # How this note's cards were rendered: from their text version
+            # (interactive_cards) or kept as template code because the text
+            # version was unusable (cards_as_code). Rendering a card as text
+            # leaves nothing in the body saying a card was there, and a sync
+            # reports cards kept as code from frontmatter alone. Counted on
+            # the rendered path's raw messages, before merging, because
+            # merging folds several card messages into one turn. Absent (not
+            # 0) when zero, so card-free notes keep their exact previous
+            # frontmatter; absent too with the feature switched off.
+            if self.interactive_card_text:
+                statuses = [
+                    self.message_processor.card_status(m)
+                    for m in messages
+                    if not self.message_processor.should_filter_message(m)
+                ]
+                for key, status in (
+                    ("interactive_cards", "text"),
+                    ("cards_as_code", "code"),
+                ):
+                    if n := statuses.count(status):
+                        metadata[key] = n
 
             # Generate JSON data if needed
             json_data = None
@@ -1341,6 +1362,11 @@ class ConversationExtractorV2:
         # Handle custom instructions - already in dict format from metadata
         if custom_instructions := metadata.get("custom_instructions"):
             json_data["custom_instructions"] = custom_instructions
+
+        # Card counts mirror frontmatter (see process_conversation).
+        for key in ("interactive_cards", "cards_as_code"):
+            if key in metadata:
+                json_data[key] = metadata[key]
 
         # Transform messages to JSON structure, preserving optional fields only when present to minimize output size
         for msg in messages:

@@ -336,8 +336,15 @@ def _message_text(msg: Dict[str, Any]) -> str:
 class MessageProcessor:
     """Process and filter messages with enhanced content handling."""
 
-    def __init__(self, tracker: SchemaEvolutionTracker):
+    def __init__(self, tracker: SchemaEvolutionTracker, card_text: bool = True):
+        """Args:
+        tracker: Schema-evolution tracker shared with the extractor.
+        card_text: Render interactive cards from their text version (see the
+            module notes). False reproduces the output from before cards
+            were handled: the card's template code, unchanged.
+        """
         self.tracker = tracker
+        self.card_text = card_text
 
     def should_filter_message(self, msg: Dict[str, Any]) -> bool:
         """Determine if message should be filtered out.
@@ -553,74 +560,80 @@ class MessageProcessor:
         return None
 
     @classmethod
-    def is_interactive_card(cls, msg: Dict[str, Any]) -> bool:
-        """Whether a message will render from a card's text version.
+    def _card_verdict(
+        cls, msg: Dict[str, Any]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Decide how a message's card renders: (status, text version, reason).
 
-        True exactly when ``extract_message_content`` uses it: the message
-        holds card code, and the text version is present, non-blank and
-        complete. Callers count these per conversation for the
-        ``interactive_cards`` frontmatter field, so the count matches what
-        the note shows.
-        """
-        text = _message_text(msg)
-        fallback = cls._raw_fallback(msg)
-        return (
-            fallback is not None
-            and _has_card_code(text)
-            and not _more_garbled(fallback, text)
-            and not _missing_prose_lines(text, fallback)
-        )
+        ``status`` is "text" (render from the text version), "code" (keep the
+        card's template code) or None (not a card). ``reason`` says why a
+        card is kept as code, for the log. One decision, so rendering, the
+        ``interactive_cards`` and ``cards_as_code`` counts and the log can
+        never disagree.
 
-    def _card_fallback(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
-        """Return a card's raw text version, or None to render as before.
-
-        Every refusal logs at WARNING because the note then shows template
-        code, with placeholders where values belong:
-        - no usable text version (absent, blank, not a string): not seen in
-          1,859 card messages, so it would mean the source changed;
-        - a garbled one (more U+FFFD than the message): 8 measured;
-        - an incomplete one: under 1% of card messages after the comparison
-          fixes (see the module notes); rendering it would cut the reply.
+        A card is kept as code when its text version is
+        - absent, blank or not a string: not seen in 1,859 card messages, so
+          it would mean the source changed;
+        - garbled (more U+FFFD than the message): 8 measured;
+        - incomplete: about 1% of card messages (11 of 1,154 on 2026-11-21);
+          rendering it would cut the reply short.
         """
         dil = (msg.get("metadata") or {}).get("model_dil_v2")
-        if not isinstance(dil, dict) or not _has_card_code(_message_text(msg)):
-            # No card code: an ordinary reply that happens to carry card
-            # metadata. Rendered as before, silently -- that is the normal case.
-            return None
-        fallback = self._raw_fallback(msg)
-        if fallback is None:
-            logger.warning(
-                "Interactive card without a usable fallbackMarkdown: conv=%s "
-                "msg=%s type=%s; rendering the card's template code instead",
-                conv_id,
-                msg.get("id"),
-                type(dil.get("fallbackMarkdown")).__name__,
-            )
-            return None
         text = _message_text(msg)
+        if not isinstance(dil, dict) or not _has_card_code(text):
+            # No card code: an ordinary reply that may carry card metadata.
+            return None, None, None
+        fallback = cls._raw_fallback(msg)
+        if fallback is None:
+            kind = type(dil.get("fallbackMarkdown")).__name__
+            return "code", None, f"no usable fallbackMarkdown (type={kind})"
         if _more_garbled(fallback, text):
-            logger.warning(
-                "Interactive card text version is garbled (%d U+FFFD against "
-                "%d in the message): conv=%s msg=%s; rendering the card's "
-                "template code instead",
-                fallback.count("\ufffd"),
-                text.count("\ufffd"),
-                conv_id,
-                msg.get("id"),
+            return (
+                "code",
+                None,
+                (
+                    f"garbled ({fallback.count(chr(0xFFFD))} U+FFFD against "
+                    f"{text.count(chr(0xFFFD))} in the message)"
+                ),
             )
-            return None
         missing = _missing_prose_lines(text, fallback)
         if missing:
+            return (
+                "code",
+                None,
+                (
+                    f"incomplete ({len(missing)} prose line(s) of the message "
+                    f"absent, first: {missing[0][:80]!r})"
+                ),
+            )
+        return "text", fallback, None
+
+    @classmethod
+    def card_status(cls, msg: Dict[str, Any]) -> Optional[str]:
+        """ "text", "code" or None (not a card); see ``_card_verdict``."""
+        return cls._card_verdict(msg)[0]
+
+    @classmethod
+    def is_interactive_card(cls, msg: Dict[str, Any]) -> bool:
+        """Whether a message renders from its card's text version."""
+        return cls.card_status(msg) == "text"
+
+    def _card_fallback(self, msg: Dict[str, Any], conv_id: str) -> Optional[str]:
+        """Return the text version to render, or None to render as before.
+
+        A card kept as code logs at WARNING, naming the reason, because the
+        note then shows template code with placeholders where values belong.
+        """
+        if not self.card_text:
+            return None
+        status, fallback, reason = self._card_verdict(msg)
+        if status == "code":
             logger.warning(
-                "Interactive card text version is incomplete (%d prose line(s) "
-                "of the message absent, first: %r): conv=%s msg=%s; rendering "
-                "the card's template code instead",
-                len(missing),
-                missing[0][:80],
+                "Interactive card kept as code, text version %s: conv=%s msg=%s",
+                reason,
                 conv_id,
                 msg.get("id"),
             )
-            return None
         return fallback
 
     def render_card_fallback(
