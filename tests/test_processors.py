@@ -1050,3 +1050,105 @@ def test_garbled_text_version_is_refused(caplog):
         assert proc.extract_message_content(msg, "c") == source
     assert proc.is_interactive_card(msg) is False
     assert any("U+FFFD" in r.getMessage() for r in caplog.records)
+
+
+class TestWordSequenceComparison:
+    """The completeness check compares words in order, not formatted text.
+
+    Each case is a form difference seen between a message and its text
+    version on real data. The first is the 2026-11-21 false refusal: a
+    sentence ending in a link right before its full stop (14 of 32 refused
+    cards). Comparing formatted text needed one special rule per difference;
+    comparing words makes punctuation, escapes, emphasis, entities, spacing
+    and link addresses irrelevant by construction.
+    """
+
+    @pytest.mark.parametrize(
+        "message_line, fallback",
+        [
+            (
+                "For the full steps see the official [Setup guide](https://x.example/a).",
+                "For the full steps see the official "
+                + _marker("url", "Setup guide", "https://x.example/a")
+                + "\\.",
+            ),
+            (
+                "Read [the vendor notes](https://x.example/n), then restart the service.",
+                "Read "
+                + _marker("url", "the vendor notes", "https://x.example/n")
+                + ", then restart the service\\.",
+            ),
+            (
+                "Signature of the receiving clerk: ______________________",
+                "Signature of the receiving clerk\\: \\_\\_\\_\\_\\_\\_",
+            ),
+            (
+                "**Priority:** medium, unless the warning repeats every hour",
+                "**Priority\\:** medium, unless the warning repeats every hour\\.",
+            ),
+            (
+                "Costs &amp; benefits are compared in the table below",
+                "Costs & benefits are compared in the table below:",
+            ),
+        ],
+        ids=[
+            "link-then-full-stop",
+            "link-then-comma",
+            "escaped-underscores",
+            "escaped-colon-and-emphasis",
+            "html-entity",
+        ],
+    )
+    def test_form_differences_are_not_missing(self, message_line, fallback):
+        from chatgpt_extractor.processors import _missing_prose_lines
+
+        assert _missing_prose_lines(message_line + "\n<box/>", fallback) == []
+
+    def test_tag_spanning_two_lines_is_card_code(self):
+        """A card tag can open on one line and close on a later one; neither
+        line is prose, so neither may be required in the text version."""
+        from chatgpt_extractor.processors import _missing_prose_lines
+
+        message = (
+            "Composite parts are made in layers by hand.\n"
+            '<AsyncImage query="fibreglass resin infusion vacuum bag composite\n'
+            'manufacturing close up workshop photograph" aspectRatio="3:4"/>\n'
+        )
+        assert (
+            _missing_prose_lines(message, "Composite parts are made in layers by hand.")
+            == []
+        )
+
+    def test_cut_off_text_version_is_still_refused(self):
+        from chatgpt_extractor.processors import _missing_prose_lines
+
+        message = (
+            "First the context section explains the purpose of the review.\n"
+            "<box/>\n"
+            "Finally the recommendation section lists the three next steps.\n"
+        )
+        fallback = "First the context section explains the purpose of the review."
+        missing = _missing_prose_lines(message, fallback)
+        assert [m.strip() for m in missing] == [
+            "Finally the recommendation section lists the three next steps."
+        ]
+
+    def test_reordered_words_are_still_missing(self):
+        """Words in a different order are different text, not a form change."""
+        from chatgpt_extractor.processors import _missing_prose_lines
+
+        message = "The supplier must confirm the delivery date in writing.\n<box/>"
+        fallback = "The delivery date must confirm the supplier in writing."
+        assert _missing_prose_lines(message, fallback) != []
+
+    def test_callout_does_not_repeat_text_shown_in_another_form(self):
+        """The callout's 'already shown?' test uses the same comparison, so a
+        string shown with different punctuation is not listed again."""
+        proc = MessageProcessor(SchemaEvolutionTracker())
+        source = (
+            "Intro line for the card.\n"
+            '<tab label="x"><text>Release plan: phase one, then phase two</text></tab>'
+        )
+        fb = "Intro line for the card.\n\n**Release plan\\:** phase one \\- then phase two"
+        out = proc.extract_message_content(_card_msg(fb, source=source), "c")
+        assert "[!note]" not in out

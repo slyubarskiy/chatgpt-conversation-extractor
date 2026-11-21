@@ -69,24 +69,38 @@ _NEEDLESS_BANG_RE = re.compile(r"\\!(?!\[)")
 
 # ---- Completeness check: is the text version the whole message? ----------
 #
-# The text version is not always whole. On 1,850 real card messages, 1,790
-# carried every prose line of the message, 13 stopped early (one
-# mid-sentence at 5,732 of 10,571 characters) and 47 lacked lines elsewhere.
-# So it is used only when every prose line of the message text -- lines that
-# are not card code -- appears in it; otherwise the message keeps today's
-# rendering. Comparison is on a normalised form that ignores what the two
-# renderings legitimately do differently (escapes, entities, emphasis
-# markers, inline markers, spacing, case).
+# The text version is not always whole: some stop early (one mid-sentence at
+# 5,732 of 10,571 characters). So it is used only when every prose line of
+# the message text -- lines that are not card code -- appears in it;
+# otherwise the message keeps today's rendering.
+#
+# Lines are compared as word sequences: the line's words must occur in the
+# same order, contiguously, among the text version's words. The two
+# renderings write the same words with different punctuation, escapes,
+# entities, emphasis, spacing and link addresses, and an earlier character-
+# level comparison needed a special rule for each difference; the fourth
+# missing rule (a link right before a full stop) wrongly refused 14 of 32
+# cards on 2026-11-21. Words make all of those irrelevant at once, while a
+# missing, cut-off or reworded line still fails.
 
 # A line holding a tag or a {template expression} is card code, and a line
 # opening with data punctuation is a row of a card's data array; neither is
 # expected verbatim in the text version.
 _CARD_CODE_LINE_RE = re.compile(r"<[^>\n]*>|\{[^{}\n]*\}")
 _DATA_ROW_RE = re.compile(r'^\s*[\[\]{}(),"]')
-# Lines shorter than this (after normalising) are not checked: numbering and
-# short labels are where the two renderings differ in form, and the 25-char
-# floor is what the 1,790-of-1,850 measurement above used.
+# A tag whose attributes continue on the next line(s): it opens here, with at
+# least one attribute, and no ">" follows. Requiring an attribute keeps prose
+# like "x <y" from being taken for code. Seen: <AsyncImage query="... on one
+# line and its close on the next (4 false refusals on 2026-11-21).
+_OPEN_TAG_RE = re.compile(r"<[A-Za-z][\w-]*\s+[\w-]+=")
+# A multi-line tag closes within a few lines; past this many, assume the
+# opening was not a tag after all and go back to treating lines as prose.
+_MAX_TAG_CONTINUATION = 10
+# Lines with fewer characters of words than this are not checked: numbering
+# and short labels are where the two renderings differ most in form.
 _MIN_CHECKED_LINE = 25
+# Letters and digits, plus U+FFFD so a damaged word stays one token.
+_WORD_RE = re.compile(r"(?:[^\W_]|�)+")
 
 
 # Card code proper. Card metadata alone is not enough: 758 of 1,564 measured
@@ -102,7 +116,6 @@ _CARD_CODE_RE = re.compile(
 )
 _MD_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\n]*)\)")
 _BARE_ADDRESS_RE = re.compile(r"(?:https?|sandbox):\S+")
-_QUOTE_MARK_RE = re.compile(r"(?m)^[ \t]*>[ \t]?")
 
 
 def _has_card_code(message_text: str) -> bool:
@@ -110,14 +123,37 @@ def _has_card_code(message_text: str) -> bool:
     return bool(_CARD_CODE_RE.search(_FENCE_RE.sub("", message_text)))
 
 
+def _line_kinds(message_text: str) -> List[Tuple[str, bool]]:
+    """Each line of a message, paired with whether it is card code.
+
+    Tracks tags whose attributes span lines, so their continuation lines count
+    as code too; both the completeness check and the collection of hidden card
+    strings read lines through this one function.
+    """
+    kinds: List[Tuple[str, bool]] = []
+    open_for = 0  # lines left inside a multi-line tag; 0 = not inside one
+    for line in message_text.splitlines():
+        if open_for:
+            kinds.append((line, True))
+            open_for = 0 if ">" in line else open_for - 1
+            continue
+        is_code = bool(_CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line))
+        last_open = None
+        for m in _OPEN_TAG_RE.finditer(line):
+            last_open = m
+        if last_open is not None and ">" not in line[last_open.end() :]:
+            is_code = True
+            open_for = _MAX_TAG_CONTINUATION
+        kinds.append((line, is_code))
+    return kinds
+
+
 def _marker_words(match: "re.Match[str]") -> str:
     """The words a marker shows, for comparison only (never rendered).
 
     Links keep their label, entities their name; everything else counts as
-    blank. Stripping links outright made a message line that is a link look
-    missing, and complete text versions were refused. Addresses are left out
-    because the two renderings write the same one differently (encoding,
-    sandbox file paths).
+    blank. Addresses are left out because the two renderings write the same
+    one differently (encoding, sandbox file paths).
     """
     kind = match.group(1)
     args = (match.group(2) or "").split(_MARKER_SEP)[1:]
@@ -133,44 +169,54 @@ def _marker_words(match: "re.Match[str]") -> str:
     return " "
 
 
-def _comparable(text: str) -> str:
-    """Normalise text so the message and its text version can be compared.
-
-    Ignores what the two renderings legitimately write differently: escapes,
-    entities, emphasis, link addresses, blockquote markers (the text version
-    may wrap one quote over several "> " lines), spacing and case.
-    """
+def _words(text: str) -> List[str]:
+    """The words a reader sees in ``text``, lower-cased, in order."""
     text = html.unescape(text)
     text = _MARKER_RE.sub(_marker_words, text)
-    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_LINK_RE.sub(r" \1 ", text)
     text = _BARE_ADDRESS_RE.sub(" ", text)
-    text = _QUOTE_MARK_RE.sub("", text)
-    text = re.sub(r"\\([^\w\s])", r"\1", text)
-    text = text.replace("**", "").replace("__", "").replace("`", "")
-    return re.sub(r"\s+", " ", text).strip().lower()
+    return _WORD_RE.findall(text.lower())
+
+
+def _word_haystack(text: str) -> str:
+    """``text``'s words joined for contiguous-sequence lookups (see _contains)."""
+    return " " + " ".join(_words(text)) + " "
+
+
+def _contains(haystack: str, words: List[str]) -> bool:
+    """Whether ``words`` occur contiguously, in order, in ``haystack``."""
+    return f" {' '.join(words)} " in haystack
 
 
 def _missing_prose_lines(message_text: str, fallback: str) -> List[str]:
     """Prose lines of the message that its text version does not contain.
 
-    U+FFFD in the message (a letter lost before it was stored) matches any
-    one or two characters, so a text version that has the letter still
-    counts as complete -- and is then the better rendering.
+    A damaged word in the message (U+FFFD, a letter lost before it was
+    stored) cannot be compared, so the line's words are split there and each
+    remaining run of two or more words must be present; a text version that
+    has the letter then still counts as complete, and is the better
+    rendering.
     """
-    haystack = _comparable(fallback)
+    haystack = _word_haystack(fallback)
     missing: List[str] = []
-    for line in message_text.splitlines():
-        if _CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line):
+    for line, is_code in _line_kinds(message_text):
+        if is_code:
             continue
-        core = _comparable(line).strip(" |#->*")
-        # No letters: a table separator or rule, whose syntax differs freely.
-        if len(core) < _MIN_CHECKED_LINE or not re.search(r"[^\W\d_]", core):
+        words = _words(line)
+        joined = " ".join(words)
+        # No letters: a table separator, rule or bare number.
+        if len(joined) < _MIN_CHECKED_LINE or not re.search(r"[^\W\d_]", joined):
             continue
-        if "\ufffd" in core:
-            pattern = ".{1,2}".join(re.escape(p) for p in re.split("\ufffd+", core))
-            if re.search(pattern, haystack):
+        if "�" in joined:
+            runs: List[List[str]] = [[]]
+            for w in words:
+                if "�" in w:
+                    runs.append([])
+                else:
+                    runs[-1].append(w)
+            if all(_contains(haystack, r) for r in runs if len(r) >= 2):
                 continue
-        elif core in haystack:
+        elif _contains(haystack, words):
             continue
         missing.append(line)
     return missing
@@ -239,8 +285,8 @@ def _card_strings(message_text: str) -> List[str]:
     """Readable strings in a message's card code, in order, de-duplicated."""
     seen: set = set()
     found: List[str] = []
-    for line in message_text.splitlines():
-        if not (_CARD_CODE_LINE_RE.search(line) or _DATA_ROW_RE.match(line)):
+    for line, is_code in _line_kinds(message_text):
+        if not is_code:
             continue  # prose lines are covered by the completeness check
         candidates = []
         for m in _STRING_LITERAL_RE.finditer(line):
@@ -602,8 +648,12 @@ class MessageProcessor:
         text = text.replace("&amp;", "&")
         text = self._unescape_outside_code(text)
 
-        shown = _comparable(text)
-        hidden = [s for s in _card_strings(message_text) if _comparable(s) not in shown]
+        # Same word comparison as the completeness check, so a string shown
+        # with different punctuation or emphasis is not listed again.
+        shown = _word_haystack(text)
+        hidden = [
+            s for s in _card_strings(message_text) if not _contains(shown, _words(s))
+        ]
         if hidden:
             text = (
                 text.rstrip("\n")
