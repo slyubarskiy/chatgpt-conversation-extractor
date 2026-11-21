@@ -1043,8 +1043,8 @@ def test_garbled_text_version_is_refused(caplog):
     were lost; 8 card messages measured) while the message text is clean.
     Rendering it would put garbling into a note that has none today."""
     proc = MessageProcessor(SchemaEvolutionTracker())
-    source = "<box><text>Атмосферные поезда и чайники</text></box>"
-    fb = "Атмосферные поезд�� и чайники"
+    source = "<box><text>Синие поезда и красные машины</text></box>"
+    fb = "Синие поезд�� и красные машины"
     msg = _card_msg(fb, source=source)
     with caplog.at_level("WARNING", logger="chatgpt_extractor.processors"):
         assert proc.extract_message_content(msg, "c") == source
@@ -1164,7 +1164,7 @@ class TestWordSequenceComparison:
             ),
             "code",
         ),
-        (_card_msg("Atmos�� text", source="<box>Atmosphere text</box>"), "code"),
+        (_card_msg("Blue tra�� text", source="<box>Blue train text</box>"), "code"),
         (_card_msg(None), "code"),
         (_card_msg("Text version", source="A plain reply with no card code"), None),
         ({"content": {"parts": ["<box/>"]}, "metadata": {}}, None),
